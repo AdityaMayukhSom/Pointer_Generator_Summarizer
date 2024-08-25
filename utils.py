@@ -30,13 +30,16 @@ def _calc_final_dist(
     vocab_size,
     batch_size,
 ):
-    """Calculate the final distribution, for the pointer-generator model
-    Args:
-    vocab_dists: The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays. The words are in the order they appear in the vocabulary file.
-    attn_dists: The attention distributions. List length max_dec_steps of (batch_size, attn_len) arrays
-    Returns:
-    final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
     """
+    Calculate the final distribution, for the pointer-generator model.
+
+    Args:
+        vocab_dists: The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays. The words are in the order they appear in the vocabulary file.
+        attn_dists: The attention distributions. List length max_dec_steps of (batch_size, attn_len) arrays
+    Returns:
+        final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
+    """
+
     # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
     vocab_dists = [p_gen * dist for (p_gen, dist) in zip(p_gens, vocab_dists)]
     attn_dists = [
@@ -44,13 +47,13 @@ def _calc_final_dist(
     ]
 
     # Concatenate some zeros to each vocabulary dist, to hold the probabilities for in-article OOV words
-    extended_vsize = (
-        vocab_size + batch_oov_len
-    )  # the maximum (over the batch) size of the extended vocabulary
+    # the maximum (over the batch) size of the extended vocabulary
+    extended_vsize = vocab_size + batch_oov_len
     extra_zeros = tf.zeros((batch_size, batch_oov_len))
+    # list length max_dec_steps of shape (batch_size, extended_vsize)
     vocab_dists_extended = [
         tf.concat(axis=1, values=[dist, extra_zeros]) for dist in vocab_dists
-    ]  # list length max_dec_steps of shape (batch_size, extended_vsize)
+    ]
 
     # Project the values in the attention distributions onto the appropriate entries in the final distributions
     # This means that if a_i = 0.1 and the ith encoder word is w, and w has index 500 in the vocabulary, then we add 0.1 onto the 500th entry of the final distribution
@@ -60,16 +63,15 @@ def _calc_final_dist(
     batch_nums = tf.expand_dims(batch_nums, 1)  # shape (batch_size, 1)
     # number of states we attend over
     attn_len = tf.shape(_enc_batch_extend_vocab)[1]  # type: ignore
-    batch_nums = tf.tile(
-        batch_nums, [1, attn_len]
-    )  # shape (batch_size, attn_len)
-    indices = tf.stack(
-        (batch_nums, _enc_batch_extend_vocab), axis=2
-    )  # shape (batch_size, enc_t, 2)
+    # shape (batch_size, attn_len)
+    batch_nums = tf.tile(batch_nums, [1, attn_len])
+    # shape (batch_size, enc_t, 2)
+    indices = tf.stack((batch_nums, _enc_batch_extend_vocab), axis=2)
     shape = [batch_size, extended_vsize]
+    # list length max_dec_steps (batch_size, extended_vsize)
     attn_dists_projected = [
         tf.scatter_nd(indices, copy_dist, shape) for copy_dist in attn_dists
-    ]  # list length max_dec_steps (batch_size, extended_vsize)
+    ]
 
     # Add the vocab distributions and the copy distributions together to get the final distributions
     # final_dists is a list length max_dec_steps; each entry is a tensor shape (batch_size, extended_vsize) giving the final distribution for that decoder timestep
