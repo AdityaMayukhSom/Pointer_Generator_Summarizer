@@ -1,6 +1,6 @@
+import os
 import argparse
 from train_test_eval import train, test_and_save, evaluate
-import os
 
 def main():
   parser = argparse.ArgumentParser()
@@ -22,7 +22,7 @@ def main():
   parser.add_argument("--max_steps", default=10000, help="Max number of iterations", type=int)
   parser.add_argument("--num_to_test", default=5, help="Number of examples to test", type=int)
   parser.add_argument("--max_num_to_eval", default=5, help="Max number of examples to evaluate", type=int)
-  parser.add_argument("--mode", help="training, eval or test options", default="", type=str)
+  parser.add_argument("--mode", help="train, eval or test options", default="", type=str)
   parser.add_argument("--model_path", help="Path to a specific model", default="", type=str)
   parser.add_argument("--checkpoint_dir", help="Checkpoint directory", default="", type=str)
   parser.add_argument("--test_save_dir", help="Directory in which we store the decoding results", default="", type=str)
