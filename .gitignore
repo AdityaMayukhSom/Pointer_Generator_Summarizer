@@ -1,1 +1,6 @@
 **/venv/
+checkpoint
+test_dir
+tfrecords
+**/__pycache__
+output.txt
