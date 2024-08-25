@@ -3,6 +3,45 @@ import numpy as np
 from batcher import Data_Helper
 
 
+class Hypothesis:
+    """Class designed to hold hypothesises throughout the beamSearch decoding"""
+
+    def __init__(self, tokens, log_probs, state, attn_dists, p_gens):
+        self.tokens = tokens  # list of all the tokens from time 0 to the current time step t
+        self.log_probs = log_probs  # list of the log probabilities of the tokens of the tokens
+        self.state = state  # decoder state after the last token decoding
+        self.attn_dists = attn_dists  # attention dists of all the tokens
+        self.p_gens = p_gens  # generation probability of all the tokens
+        self.abstract = ""
+        self.text = ""
+        self.real_abstract = ""
+
+    def extend(self, token, log_prob, state, attn_dist, p_gen):
+        """Method to extend the current hypothesis by adding the next
+        decoded toekn and all the informations associated with it"""
+        return Hypothesis(
+            tokens=self.tokens + [token],  # we add the decoded token
+            log_probs=self.log_probs
+            + [log_prob],  # we add the log prob of the decoded token
+            state=state,  # we update the state
+            attn_dists=self.attn_dists
+            + [attn_dist],  # we  add the attention dist of the decoded token
+            p_gens=self.p_gens + [p_gen],  # we add the p_gen
+        )
+
+    @property
+    def latest_token(self):
+        return self.tokens[-1]
+
+    @property
+    def tot_log_prob(self):
+        return sum(self.log_probs)
+
+    @property
+    def avg_log_prob(self):
+        return self.tot_log_prob / len(self.tokens)
+
+
 def beam_decode(model, batch, vocab, params):
     def decode_onestep(batch, enc_outputs, dec_state, dec_input):
         """
@@ -42,49 +81,6 @@ def beam_decode(model, batch, vocab, params):
         }
         return results
 
-    # nested class
-    class Hypothesis:
-        """Class designed to hold hypothesises throughout the beamSearch decoding"""
-
-        def __init__(self, tokens, log_probs, state, attn_dists, p_gens):
-            self.tokens = tokens  # list of all the tokens from time 0 to the current time step t
-            self.log_probs = log_probs  # list of the log probabilities of the tokens of the tokens
-            self.state = state  # decoder state after the last token decoding
-            self.attn_dists = attn_dists  # attention dists of all the tokens
-            self.p_gens = p_gens  # generation probability of all the tokens
-            self.abstract = ""
-            self.text = ""
-            self.real_abstract = ""
-
-        def extend(self, token, log_prob, state, attn_dist, p_gen):
-            """Method to extend the current hypothesis by adding the next
-            decoded toekn and all the informations associated with it"""
-            return Hypothesis(
-                tokens=self.tokens + [token],  # we add the decoded token
-                log_probs=self.log_probs
-                + [log_prob],  # we add the log prob of the decoded token
-                state=state,  # we update the state
-                attn_dists=self.attn_dists
-                + [
-                    attn_dist
-                ],  # we  add the attention dist of the decoded token
-                p_gens=self.p_gens + [p_gen],  # we add the p_gen
-            )
-
-        @property
-        def latest_token(self):
-            return self.tokens[-1]
-
-        @property
-        def tot_log_prob(self):
-            return sum(self.log_probs)
-
-        @property
-        def avg_log_prob(self):
-            return self.tot_log_prob / len(self.tokens)
-
-    # end of the nested class
-
     # We run the encoder once and then we use the results to decode each time step token
 
     state, enc_outputs = model.call_encoder(batch[0]["enc_input"])
@@ -92,13 +88,11 @@ def beam_decode(model, batch, vocab, params):
     # Initial Hypothesises (beam_size many list)
     hyps = [
         Hypothesis(
-            tokens=[
-                vocab.word_to_id("[START]")
-            ],  # we initalize all the beam_size hypothesises with the token start
+            # we initalize all the beam_size hypothesises with the token start
+            tokens=[vocab.word_to_id("[START]")],
             log_probs=[0.0],  # Initial log prob = 0
-            state=state[
-                0
-            ],  # initial dec_state (we will use only the first dec_state because they're initially the same)
+            # initial dec_state (we will use only the first dec_state because they're initially the same)
+            state=state[0],
             attn_dists=[],
             p_gens=[],  # we init the coverage vector to zero
         )
