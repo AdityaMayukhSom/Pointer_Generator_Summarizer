@@ -1,4 +1,3 @@
-import tensorflow as tf
 import argparse
 from train_test_eval import train, test_and_save, evaluate
 import os
