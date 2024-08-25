@@ -28,14 +28,11 @@ class Vocab:
         }
         self.count = 4
 
-        with open(vocab_file, "r") as f:
+        with open(vocab_file, "r", encoding="utf-8") as f:
             for line in f:
                 pieces = line.split()
                 if len(pieces) != 2:
-                    print(
-                        "Warning : incorrectly formatted line in vocabulary file : %s\n"
-                        % line
-                    )
+                    print("Warning : incorrectly formatted line in vocabulary file : %s\n" % line)
                     continue
 
                 w = pieces[0]
@@ -48,14 +45,11 @@ class Vocab:
                     Vocab.STOP_DECODING,
                 ]:
                     raise Exception(
-                        "<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is"
-                        % w
+                        "<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is" % w
                     )
 
                 if w in self.word2id:
-                    raise Exception(
-                        "Duplicated word in vocabulary file: %s" % w
-                    )
+                    raise Exception("Duplicated word in vocabulary file: %s" % w)
 
                 self.word2id[w] = self.count
                 self.id2word[self.count] = w
@@ -97,9 +91,7 @@ class Data_Helper:
             if i == unk_id:  # If w is OOV
                 if w not in oovs:  # Add to list of OOVs
                     oovs.append(w)
-                oov_num = oovs.index(
-                    w
-                )  # This is 0 for the first article OOV, 1 for the second article OOV...
+                oov_num = oovs.index(w)  # This is 0 for the first article OOV, 1 for the second article OOV...
                 ids.append(
                     vocab.size() + oov_num
                 )  # This is e.g. 50000 for the first article OOV, 50001 for the second...
@@ -115,9 +107,7 @@ class Data_Helper:
             i = vocab.word_to_id(w)
             if i == unk_id:  # If w is an OOV word
                 if w in article_oovs:  # If w is an in-article OOV
-                    vocab_idx = vocab.size() + article_oovs.index(
-                        w
-                    )  # Map to its temporary article OOV number
+                    vocab_idx = vocab.size() + article_oovs.index(w)  # Map to its temporary article OOV number
                     ids.append(vocab_idx)
                 else:  # If w is an out-of-article OOV
                     ids.append(unk_id)  # Map to the UNK token id
@@ -138,9 +128,7 @@ class Data_Helper:
                 article_oov_idx = i - vocab.size()
                 try:
                     w = article_oovs[article_oov_idx]
-                except (
-                    ValueError
-                ) as e:  # i doesn't correspond to an article oov
+                except ValueError as e:  # i doesn't correspond to an article oov
                     raise ValueError(
                         "Error: model produced word ID %i which corresponds to article OOV %i but this example only has %i article OOVs"
                         % (i, article_oov_idx, len(article_oovs))
@@ -162,9 +150,7 @@ class Data_Helper:
                 start_p = abstract.index(Vocab.SENTENCE_START, cur)
                 end_p = abstract.index(Vocab.SENTENCE_END, start_p + 1)
                 cur = end_p + len(Vocab.SENTENCE_END)
-                sents.append(
-                    abstract[start_p + len(Vocab.SENTENCE_START) : end_p]
-                )
+                sents.append(abstract[start_p + len(Vocab.SENTENCE_START) : end_p])
             except ValueError as e:  # no more sentences
                 return sents
 
@@ -198,22 +184,16 @@ def _parse_function(example_proto):
         "abstract": tf.io.FixedLenFeature([], tf.string, default_value=""),
     }
     # Parse the input `tf.Example` proto using the dictionary above.
-    parsed_example = tf.io.parse_single_example(
-        example_proto, feature_description
-    )
+    parsed_example = tf.io.parse_single_example(example_proto, feature_description)
     return parsed_example
 
 
-def example_generator(
-    filenames, vocab, max_enc_len, max_dec_len, mode, batch_size
-):
+def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size):
 
     raw_dataset = tf.data.TFRecordDataset(filenames)
     parsed_dataset = raw_dataset.map(_parse_function)
     if mode == "train":
-        parsed_dataset = parsed_dataset.shuffle(
-            1000, reshuffle_each_iteration=True
-        ).repeat()
+        parsed_dataset = parsed_dataset.shuffle(1000, reshuffle_each_iteration=True).repeat()
 
     for raw_record in parsed_dataset:
 
@@ -226,25 +206,15 @@ def example_generator(
         article_words = article.split()[:max_enc_len]
         enc_len = len(article_words)
         enc_input = [vocab.word_to_id(w) for w in article_words]
-        enc_input_extend_vocab, article_oovs = Data_Helper.article_to_ids(
-            article_words, vocab
-        )
+        enc_input_extend_vocab, article_oovs = Data_Helper.article_to_ids(article_words, vocab)
 
-        abstract_sentences = [
-            sent.strip() for sent in Data_Helper.abstract_to_sents(abstract)
-        ]
+        abstract_sentences = [sent.strip() for sent in Data_Helper.abstract_to_sents(abstract)]
         abstract = " ".join(abstract_sentences)
         abstract_words = abstract.split()
         abs_ids = [vocab.word_to_id(w) for w in abstract_words]
-        abs_ids_extend_vocab = Data_Helper.abstract_to_ids(
-            abstract_words, vocab, article_oovs
-        )
-        dec_input, target = Data_Helper.get_dec_inp_targ_seqs(
-            abs_ids, max_dec_len, start_decoding, stop_decoding
-        )
-        _, target = Data_Helper.get_dec_inp_targ_seqs(
-            abs_ids_extend_vocab, max_dec_len, start_decoding, stop_decoding
-        )
+        abs_ids_extend_vocab = Data_Helper.abstract_to_ids(abstract_words, vocab, article_oovs)
+        dec_input, target = Data_Helper.get_dec_inp_targ_seqs(abs_ids, max_dec_len, start_decoding, stop_decoding)
+        _, target = Data_Helper.get_dec_inp_targ_seqs(abs_ids_extend_vocab, max_dec_len, start_decoding, stop_decoding)
         dec_len = len(dec_input)
 
         output = {
@@ -266,14 +236,10 @@ def example_generator(
             yield output
 
 
-def batch_generator(
-    generator, filenames, vocab, max_enc_len, max_dec_len, batch_size, mode
-):
+def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch_size, mode):
 
     dataset = tf.data.Dataset.from_generator(
-        lambda: generator(
-            filenames, vocab, max_enc_len, max_dec_len, mode, batch_size
-        ),
+        lambda: generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size),
         output_types={
             "enc_len": tf.int32,
             "enc_input": tf.int32,
