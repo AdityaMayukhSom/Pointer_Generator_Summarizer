@@ -5,7 +5,7 @@ from layers import Encoder, BahdanauAttention, Decoder, Pointer
 
 
 class PGN(keras.Model):
-    def __init__(self, params):
+    def __init__(self, params: dict):
         super(PGN, self).__init__()
         self.params = params
         self.encoder = Encoder(
@@ -22,6 +22,11 @@ class PGN(keras.Model):
             params["batch_size"],
         )
         self.pointer = Pointer()
+
+        self.encoder.trainable = True
+        self.attention.trainable = True
+        self.decoder.trainable = True
+        self.pointer.trainable = True
 
     def call_encoder(self, enc_inp):
         enc_hidden = self.encoder.initialize_hidden_state()
@@ -42,6 +47,7 @@ class PGN(keras.Model):
         attentions = []
         p_gens = []
         context_vector, _ = self.attention(dec_hidden, enc_output)
+
         for t in range(dec_inp.shape[1]):
             dec_x, pred, dec_hidden = self.decoder(
                 tf.expand_dims(dec_inp[:, t], 1),
@@ -50,13 +56,12 @@ class PGN(keras.Model):
                 context_vector,
             )
             context_vector, attn = self.attention(dec_hidden, enc_output)
-            p_gen = self.pointer(
-                context_vector, dec_hidden, tf.squeeze(dec_x, axis=1)
-            )
+            p_gen = self.pointer(context_vector, dec_hidden, tf.squeeze(dec_x, axis=1))
 
             predictions.append(pred)
             attentions.append(attn)
             p_gens.append(p_gen)
+
         final_dists = _calc_final_dist(
             enc_extended_inp,
             predictions,
