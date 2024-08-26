@@ -1,102 +1,154 @@
+import time
 import keras
 import tensorflow as tf
-import time
+from model import PGN
 
 
-def train_model(model, dataset, params, ckpt, ckpt_manager, out_file):
+class ModelTrainer:
+    def __init__(self, params, model: PGN, dataset):
+        self.model = model
+        self.dataset = dataset
 
-    optimizer = keras.optimizers.Adagrad(
-        params["learning_rate"],
-        initial_accumulator_value=params["adagrad_init_acc"],
-        clipnorm=params["max_grad_norm"],
-    )
-    loss_object = keras.losses.SparseCategoricalCrossentropy(
-        from_logits=False, reduction="none"
-    )
+        self.batch_size = int(params["batch_size"])
+        self.max_training_steps = int(params["max_steps"])
+        self.checkpoint_save_steps = int(params["checkpoints_save_steps"])
 
-    def loss_function(real, pred):
-        mask = tf.math.logical_not(tf.math.equal(real, 1))
-        dec_lens = tf.reduce_sum(tf.cast(mask, dtype=tf.float32), axis=-1)
-        loss_ = loss_object(real, pred)
+        # reduction can be None as documented in the API but to make mypy happy, adding type ignore
+        # reference: https://keras.io/api/losses/probabilistic_losses/#sparsecategoricalcrossentropy-class
+        self.loss_object = keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction=None)  # type: ignore
+
+        self.optimizer = keras.optimizers.Adagrad(
+            params["learning_rate"],
+            initial_accumulator_value=params["adagrad_init_acc"],
+            clipnorm=params["max_grad_norm"],
+        )
+
+    def loss_function(self, real: tf.Tensor, pred: tf.Tensor) -> tf.Tensor:
+        """
+        Args:
+            real (tf.Tensor): (batch, seq_len)
+            pred (tf.Tensor): (batch, seq_len, None)
+
+        Returns:
+            _type_: _description_
+        """
+
+        # an array containing row-wise losses
+        loss_ = self.loss_object(real, pred)
+        loss_ = tf.convert_to_tensor(loss_)
+
+        mask = tf.math.equal(real, tf.constant(1))
+        mask = tf.math.logical_not(mask)
         mask = tf.cast(mask, dtype=loss_.dtype)
-        loss_ *= mask
+
+        if not isinstance(mask, tf.Tensor):
+            raise ValueError(f"mask is of type {type(mask)}, should be an instange of tf.Tensor")
+
+        # dec_lens contains row-wise sums of the mask, basically elements which has been decoded
+        dec_lens: tf.Tensor = tf.reduce_sum(tf.cast(mask, dtype=tf.float32), axis=-1)
+
+        loss_ = tf.multiply(loss_, mask)
         # we have to make sure no empty abstract is being used otherwise dec_lens may contain null values
         loss_ = tf.reduce_sum(loss_, axis=-1) / dec_lens
-        return tf.reduce_mean(loss_)
 
-    @tf.function(
-        input_signature=(
-            tf.TensorSpec(shape=[params["batch_size"], None], dtype=tf.int32),
-            tf.TensorSpec(shape=[params["batch_size"], None], dtype=tf.int32),
-            tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
-            tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
-            tf.TensorSpec(shape=[], dtype=tf.int32),
-        )
-    )
+        # tensor with a single dimention is returned as axis is None
+        mean_loss: tf.Tensor = tf.reduce_mean(loss_)
+        return mean_loss
+
+    # input_signature = [
+    #     tf.TensorSpec(shape=[params["batch_size"], None], dtype=tf.int32),
+    #     tf.TensorSpec(shape=[params["batch_size"], None], dtype=tf.int32),
+    #     tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
+    #     tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
+    #     tf.TensorSpec(shape=[], dtype=tf.int32),
+    # ]
+
+    @tf.function
     def train_step(
+        self,
         enc_inp: tf.Tensor,
         enc_extended_inp: tf.Tensor,
         dec_inp: tf.Tensor,
         dec_tar: tf.Tensor,
         batch_oov_len: tf.Tensor,
-    ):
-        loss = 0
+        training: bool,
+    ) -> tf.Tensor:
+        loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
-            enc_hidden, enc_output = model.call_encoder(enc_inp)
-            predictions, _ = model(
+
+            # tape.watch(variables)
+            enc_hidden, enc_output = self.model.call_encoder(enc_inp)
+
+            predictions, _ = self.model(
                 enc_output,
                 enc_hidden,
                 enc_inp,
                 enc_extended_inp,
                 dec_inp,
                 batch_oov_len,
+                training=training,
             )
-            loss = loss_function(dec_tar, predictions)
 
-        variables = (
-            model.encoder.trainable_variables
-            + model.attention.trainable_variables
-            + model.decoder.trainable_variables
-            + model.pointer.trainable_variables
-        )
-        gradients = tape.gradient(loss, variables)
-        optimizer.apply_gradients(zip(gradients, variables))
+            variables = (
+                self.model.encoder.trainable_variables
+                + self.model.attention.trainable_variables
+                + self.model.decoder.trainable_variables
+                + self.model.pointer.trainable_variables
+            )
+
+            loss = self.loss_function(dec_tar, predictions)
+
+            gradients = tape.gradient(target=loss, sources=variables)
+
+            if gradients is None:
+                raise ValueError("gradients cannot be none")
+
+            # if any(g is None for g in gradients):
+            #     raise ValueError("one or more gradients are None")
+
+            self.optimizer.apply_gradients(zip(gradients, variables))
+
         return loss
 
-    try:
-        f = open(out_file, "w+")
-        for batch in dataset:
-            t0 = time.time()
-            loss = train_step(
-                batch[0]["enc_input"],
-                batch[0]["extended_enc_input"],
-                batch[1]["dec_input"],
-                batch[1]["dec_target"],
-                batch[0]["max_oov_len"],
-            )
-            print(
-                "Step {}, time {:.4f}, Loss {:.4f}".format(
-                    int(ckpt.step), time.time() - t0, loss.numpy()
-                )
-            )
-            f.write(
-                "Step {}, time {:.4f}, Loss {:.4f}\n".format(
-                    int(ckpt.step), time.time() - t0, loss.numpy()
-                )
-            )
-            if int(ckpt.step) == params["max_steps"]:
-                ckpt_manager.save(checkpoint_number=int(ckpt.step))
-                print("Saved checkpoint for step {}".format(int(ckpt.step)))
-                f.close()
-                break
-            if int(ckpt.step) % params["checkpoints_save_steps"] == 0:
-                ckpt_manager.save(checkpoint_number=int(ckpt.step))
-                print("Saved checkpoint for step {}".format(int(ckpt.step)))
-            ckpt.step.assign_add(1)
-        f.close()
+    def execute(self, ckpt, ckpt_manager: tf.train.CheckpointManager, out_file: str):
+        try:
+            f = open(out_file, "w+")
+            for batch in self.dataset:
+                t0 = time.time()
 
-    except KeyboardInterrupt:
-        ckpt_manager.save(int(ckpt.step))
-        print("Saved checkpoint for step {}".format(int(ckpt.step)))
-        f.close()
+                loss = self.train_step(
+                    batch[0]["enc_input"],
+                    batch[0]["extended_enc_input"],
+                    batch[1]["dec_input"],
+                    batch[1]["dec_target"],
+                    batch[0]["max_oov_len"],
+                    training=True,
+                )
+
+                t1 = time.time()
+
+                step_time = t1 - t0
+                current_loss = loss.numpy()  # type: ignore
+                checkpoint_step = int(ckpt.step)
+
+                print("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
+                f.write("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
+
+                if int(ckpt.step) == self.max_training_steps:
+                    ckpt_manager.save(checkpoint_number=int(ckpt.step))
+                    print("Saved checkpoint for step {}".format(int(ckpt.step)))
+                    f.close()
+                    break
+
+                if int(ckpt.step) % self.checkpoint_save_steps == 0:
+                    ckpt_manager.save(checkpoint_number=int(ckpt.step))
+                    print("Saved checkpoint for step {}".format(int(ckpt.step)))
+
+                ckpt.step.assign_add(1)
+            f.close()
+
+        except KeyboardInterrupt:
+            ckpt_manager.save(int(ckpt.step))
+            print("Saved checkpoint for step {}".format(int(ckpt.step)))
+            f.close()
