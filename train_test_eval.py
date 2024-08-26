@@ -1,31 +1,30 @@
 import tensorflow as tf
 from model import PGN
-from training_helper import train_model
+from training_helper import ModelTrainer
 from test_helper import beam_decode
 from batcher import batcher, Vocab
 from tqdm import tqdm
 from rouge import Rouge
+import logging
 import pprint
 
 
 def train(params):
     assert params["mode"].lower() == "train", "change training mode to 'train'"
 
-    tf.compat.v1.logging.info("Building the model ...")
+    logging.info("Building the model ...")
     model = PGN(params)
 
     print("Creating the vocab ...")
     vocab = Vocab(params["vocab_path"], params["vocab_size"])
 
     print("Creating the batcher ...")
-    b = batcher(params["data_dir"], vocab, params)
+    dataset_v2 = batcher(params["data_dir"], vocab, params)
 
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}".format(params["checkpoint_dir"])
     ckpt = tf.train.Checkpoint(step=tf.Variable(0), PGN=model)
-    ckpt_manager = tf.train.CheckpointManager(
-        ckpt, checkpoint_dir, max_to_keep=11
-    )
+    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=11)
 
     ckpt.restore(ckpt_manager.latest_checkpoint)
     if ckpt_manager.latest_checkpoint:
@@ -33,8 +32,9 @@ def train(params):
     else:
         print("Initializing from scratch.")
 
-    tf.compat.v1.logging.info("Starting the training ...")
-    train_model(model, b, params, ckpt, ckpt_manager, "output.txt")
+    logging.info("Starting the training ...")
+    model_trainer = ModelTrainer(params, model, dataset_v2)
+    model_trainer.execute(ckpt, ckpt_manager, "output.txt")
 
 
 def test(params):
@@ -42,11 +42,9 @@ def test(params):
         "test",
         "eval",
     ], "change training mode to 'test' or 'eval'"
-    assert (
-        params["beam_size"] == params["batch_size"]
-    ), "Beam size must be equal to batch_size, change the params"
+    assert params["beam_size"] == params["batch_size"], "Beam size must be equal to batch_size, change the params"
 
-    tf.compat.v1.logging.info("Building the model ...")
+    logging.info("Building the model ...")
     model = PGN(params)
 
     print("Creating the vocab ...")
@@ -58,15 +56,9 @@ def test(params):
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}".format(params["checkpoint_dir"])
     ckpt = tf.train.Checkpoint(step=tf.Variable(0), PGN=model)
-    ckpt_manager = tf.train.CheckpointManager(
-        ckpt, checkpoint_dir, max_to_keep=11
-    )
+    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=11)
 
-    path = (
-        params["model_path"]
-        if params["model_path"]
-        else ckpt_manager.latest_checkpoint
-    )
+    path = params["model_path"] if params["model_path"] else ckpt_manager.latest_checkpoint
     ckpt.restore(path)
     print("Model restored")
 
@@ -80,9 +72,7 @@ def test_and_save(params):
     with tqdm(total=params["num_to_test"], position=0, leave=True) as pbar:
         for i in range(params["num_to_test"]):
             trial = next(gen)
-            with open(
-                params["test_save_dir"] + "/article_" + str(i) + ".txt", "w"
-            ) as f:
+            with open(params["test_save_dir"] + "/article_" + str(i) + ".txt", "w") as f:
                 f.write("article:\n")
                 f.write(trial.text)
                 f.write("\n\nabstract:\n")
