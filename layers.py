@@ -3,7 +3,7 @@ import tensorflow as tf
 
 
 class Encoder(keras.layers.Layer):
-    def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz):
+    def __init__(self, vocab_size, embedding_dim, enc_units: int, batch_sz: int):
         super(Encoder, self).__init__()
         self.batch_sz = batch_sz
         self.enc_units = enc_units
@@ -15,13 +15,18 @@ class Encoder(keras.layers.Layer):
             recurrent_initializer="glorot_uniform",
         )
 
+        forward_layer = keras.layers.LSTM(10, return_sequences=True)
+        backward_layer = keras.layers.LSTM(10, activation="relu", return_sequences=True, go_backwards=True)
+        self.bidirectional = keras.layers.Bidirectional(forward_layer, backward_layer=backward_layer)
+
     def call(self, x, hidden):
         x = self.embedding(x)
         output, state = self.gru(x, initial_state=hidden)
         return output, state
 
     def initialize_hidden_state(self):
-        return tf.zeros((self.batch_sz, self.enc_units))
+        initializer = keras.initializers.GlorotUniform()
+        return initializer(shape=(self.batch_sz, self.enc_units))
 
 
 class BahdanauAttention(keras.layers.Layer):
@@ -40,9 +45,7 @@ class BahdanauAttention(keras.layers.Layer):
         # score shape == (batch_size, max_length, 1)
         # we get 1 at the last axis because we are applying score to self.V
         # the shape of the tensor before applying self.V is (batch_size, max_length, units)
-        score = self.V(
-            tf.nn.tanh(self.W1(values) + self.W2(hidden_with_time_axis))
-        )
+        score = self.V(tf.nn.tanh(self.W1(values) + self.W2(hidden_with_time_axis)))
 
         # attention_weights shape == (batch_size, max_length, 1)
         attention_weights = tf.nn.softmax(score, axis=1)
@@ -66,9 +69,7 @@ class Decoder(keras.layers.Layer):
             return_state=True,
             recurrent_initializer="glorot_uniform",
         )
-        self.fc = keras.layers.Dense(
-            vocab_size, activation=keras.activations.softmax
-        )
+        self.fc = keras.layers.Dense(vocab_size, activation=keras.activations.softmax)
 
     def call(self, x, hidden, enc_output, context_vector):
         # enc_output shape == (batch_size, max_length, hidden_size)
@@ -100,8 +101,4 @@ class Pointer(keras.layers.Layer):
         self.w_c_reduce = keras.layers.Dense(1)
 
     def call(self, context_vector, state, dec_inp):
-        return tf.nn.sigmoid(
-            self.w_s_reduce(state)
-            + self.w_c_reduce(context_vector)
-            + self.w_i_reduce(dec_inp)
-        )
+        return tf.nn.sigmoid(self.w_s_reduce(state) + self.w_c_reduce(context_vector) + self.w_i_reduce(dec_inp))
