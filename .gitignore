@@ -4,3 +4,4 @@ test_dir
 tfrecords
 **/__pycache__
 output.txt
+.idea
