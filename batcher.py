@@ -1,22 +1,18 @@
-import tensorflow as tf
 import glob
+import tensorflow as tf
 
 
 class Vocab:
-
     SENTENCE_START = "<s>"
     SENTENCE_END = "</s>"
-
     PAD_TOKEN = "[PAD]"
     UNKNOWN_TOKEN = "[UNK]"
     START_DECODING = "[START]"
     STOP_DECODING = "[STOP]"
 
     def __init__(self, vocab_file, max_size):
-
         self.word2id = {Vocab.UNKNOWN_TOKEN: 0, Vocab.PAD_TOKEN: 1, Vocab.START_DECODING: 2, Vocab.STOP_DECODING: 3}
         self.id2word = {0: Vocab.UNKNOWN_TOKEN, 1: Vocab.PAD_TOKEN, 2: Vocab.START_DECODING, 3: Vocab.STOP_DECODING}
-
         self.count = 4
 
         with open(vocab_file, "r", encoding="utf-8") as f:
@@ -56,7 +52,7 @@ class Vocab:
         return self.count
 
 
-class Data_Helper:
+class DataHelper:
     @staticmethod
     def article_to_ids(article_words, vocab):
         ids = []
@@ -163,7 +159,6 @@ def _parse_function(example_proto):
 
 
 def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size):
-
     raw_dataset = tf.data.TFRecordDataset(filenames)
     parsed_dataset = raw_dataset.map(_parse_function)
     if mode == "train":
@@ -180,15 +175,15 @@ def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_si
         article_words = article.split()[:max_enc_len]
         enc_len = len(article_words)
         enc_input = [vocab.word_to_id(w) for w in article_words]
-        enc_input_extend_vocab, article_oovs = Data_Helper.article_to_ids(article_words, vocab)
+        enc_input_extend_vocab, article_oovs = DataHelper.article_to_ids(article_words, vocab)
 
-        abstract_sentences = [sent.strip() for sent in Data_Helper.abstract_to_sents(abstract)]
+        abstract_sentences = [sent.strip() for sent in DataHelper.abstract_to_sents(abstract)]
         abstract = " ".join(abstract_sentences)
         abstract_words = abstract.split()
         abs_ids = [vocab.word_to_id(w) for w in abstract_words]
-        abs_ids_extend_vocab = Data_Helper.abstract_to_ids(abstract_words, vocab, article_oovs)
-        dec_input, target = Data_Helper.get_dec_inp_targ_seqs(abs_ids, max_dec_len, start_decoding, stop_decoding)
-        _, target = Data_Helper.get_dec_inp_targ_seqs(abs_ids_extend_vocab, max_dec_len, start_decoding, stop_decoding)
+        abs_ids_extend_vocab = DataHelper.abstract_to_ids(abstract_words, vocab, article_oovs)
+        dec_input, target = DataHelper.get_dec_inp_targ_seqs(abs_ids, max_dec_len, start_decoding, stop_decoding)
+        _, target = DataHelper.get_dec_inp_targ_seqs(abs_ids_extend_vocab, max_dec_len, start_decoding, stop_decoding)
         dec_len = len(dec_input)
 
         output = {
@@ -212,7 +207,6 @@ def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_si
 
 
 def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch_size, mode):
-
     dataset = tf.data.Dataset.from_generator(
         lambda: generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size),
         output_types={
@@ -240,8 +234,6 @@ def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch
             "abstract_sents": [None],
         },
     )
-
-    # codemade.ai, ayush, 50 hours //
 
     dataset = dataset.padded_batch(
         batch_size,
@@ -297,8 +289,8 @@ def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch
 
 
 def batcher(data_path, vocab, hpm):
-
     filenames = glob.glob("{}/*.tfrecords".format(data_path))
+
     dataset = batch_generator(
         example_generator,
         filenames,
