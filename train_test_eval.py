@@ -38,10 +38,7 @@ def train(params):
 
 
 def test(params):
-    assert params["mode"].lower() in [
-        "test",
-        "eval",
-    ], "change training mode to 'test' or 'eval'"
+    assert params["mode"].lower() in ["test", "eval"], "change training mode to 'test' or 'eval'"
     assert params["beam_size"] == params["batch_size"], "Beam size must be equal to batch_size, change the params"
 
     logging.info("Building the model ...")

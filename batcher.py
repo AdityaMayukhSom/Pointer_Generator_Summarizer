@@ -14,18 +14,9 @@ class Vocab:
 
     def __init__(self, vocab_file, max_size):
 
-        self.word2id = {
-            Vocab.UNKNOWN_TOKEN: 0,
-            Vocab.PAD_TOKEN: 1,
-            Vocab.START_DECODING: 2,
-            Vocab.STOP_DECODING: 3,
-        }
-        self.id2word = {
-            0: Vocab.UNKNOWN_TOKEN,
-            1: Vocab.PAD_TOKEN,
-            2: Vocab.START_DECODING,
-            3: Vocab.STOP_DECODING,
-        }
+        self.word2id = {Vocab.UNKNOWN_TOKEN: 0, Vocab.PAD_TOKEN: 1, Vocab.START_DECODING: 2, Vocab.STOP_DECODING: 3}
+        self.id2word = {0: Vocab.UNKNOWN_TOKEN, 1: Vocab.PAD_TOKEN, 2: Vocab.START_DECODING, 3: Vocab.STOP_DECODING}
+
         self.count = 4
 
         with open(vocab_file, "r", encoding="utf-8") as f:
@@ -36,17 +27,8 @@ class Vocab:
                     continue
 
                 w = pieces[0]
-                if w in [
-                    Vocab.SENTENCE_START,
-                    Vocab.SENTENCE_END,
-                    Vocab.UNKNOWN_TOKEN,
-                    Vocab.PAD_TOKEN,
-                    Vocab.START_DECODING,
-                    Vocab.STOP_DECODING,
-                ]:
-                    raise Exception(
-                        "<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is" % w
-                    )
+                if w in [Vocab.SENTENCE_START, Vocab.SENTENCE_END, Vocab.UNKNOWN_TOKEN, Vocab.PAD_TOKEN, Vocab.START_DECODING, Vocab.STOP_DECODING]:
+                    raise Exception("<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is" % w)
 
                 if w in self.word2id:
                     raise Exception("Duplicated word in vocabulary file: %s" % w)
@@ -55,16 +37,10 @@ class Vocab:
                 self.id2word[self.count] = w
                 self.count += 1
                 if max_size != 0 and self.count >= max_size:
-                    print(
-                        "max_size of vocab was specified as %i; we now have %i words. Stopping reading."
-                        % (max_size, self.count)
-                    )
+                    print("max_size of vocab was specified as %i; we now have %i words. Stopping reading." % (max_size, self.count))
                     break
 
-        print(
-            "Finished constructing vocabulary of %i total words. Last word added: %s"
-            % (self.count, self.id2word[self.count - 1])
-        )
+        print("Finished constructing vocabulary of %i total words. Last word added: %s" % (self.count, self.id2word[self.count - 1]))
 
     def word_to_id(self, word):
         if word not in self.word2id:
@@ -92,9 +68,7 @@ class Data_Helper:
                 if w not in oovs:  # Add to list of OOVs
                     oovs.append(w)
                 oov_num = oovs.index(w)  # This is 0 for the first article OOV, 1 for the second article OOV...
-                ids.append(
-                    vocab.size() + oov_num
-                )  # This is e.g. 50000 for the first article OOV, 50001 for the second...
+                ids.append(vocab.size() + oov_num)  # This is e.g. 50000 for the first article OOV, 50001 for the second...
             else:
                 ids.append(i)
         return ids, oovs
@@ -229,6 +203,7 @@ def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_si
             "abstract": abstract,
             "abstract_sents": abstract_sentences,
         }
+
         if mode == "test" or mode == "eval":
             for _ in range(batch_size):
                 yield output
@@ -265,6 +240,9 @@ def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch
             "abstract_sents": [None],
         },
     )
+
+    # codemade.ai, ayush, 50 hours //
+
     dataset = dataset.padded_batch(
         batch_size,
         padded_shapes=(

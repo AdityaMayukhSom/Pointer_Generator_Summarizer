@@ -65,13 +65,7 @@ class ModelTrainer:
 
     @tf.function
     def train_step(
-        self,
-        enc_inp: tf.Tensor,
-        enc_extended_inp: tf.Tensor,
-        dec_inp: tf.Tensor,
-        dec_tar: tf.Tensor,
-        batch_oov_len: tf.Tensor,
-        training: bool,
+        self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, dec_tar: tf.Tensor, batch_oov_len: tf.Tensor, training: bool
     ) -> tf.Tensor:
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
@@ -80,15 +74,7 @@ class ModelTrainer:
             # tape.watch(variables)
             enc_hidden, enc_output = self.model.call_encoder(enc_inp)
 
-            predictions, _ = self.model(
-                enc_output,
-                enc_hidden,
-                enc_inp,
-                enc_extended_inp,
-                dec_inp,
-                batch_oov_len,
-                training=training,
-            )
+            predictions, _ = self.model(enc_output, enc_hidden, enc_inp, enc_extended_inp, dec_inp, batch_oov_len, training=training)
 
             variables = (
                 self.model.encoder.trainable_variables

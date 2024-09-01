@@ -18,15 +18,7 @@ def define_logger(log_file):
     log.addHandler(fh)
 
 
-def _calc_final_dist(
-    _enc_batch_extend_vocab,
-    vocab_dists,
-    attn_dists,
-    p_gens,
-    batch_oov_len,
-    vocab_size,
-    batch_size,
-):
+def _calc_final_dist(_enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size):
     """
     Calculate the final distribution, for the pointer-generator model.
 
@@ -67,8 +59,6 @@ def _calc_final_dist(
     # Add the vocab distributions and the copy distributions together to get the final distributions
     # final_dists is a list length max_dec_steps; each entry is a tensor shape (batch_size, extended_vsize) giving the final distribution for that decoder timestep
     # Note that for decoder timesteps and examples corresponding to a [PAD] token, this is junk - ignore.
-    final_dists = [
-        vocab_dist + copy_dist for (vocab_dist, copy_dist) in zip(vocab_dists_extended, attn_dists_projected)
-    ]
+    final_dists = [vocab_dist + copy_dist for (vocab_dist, copy_dist) in zip(vocab_dists_extended, attn_dists_projected)]
 
     return final_dists

@@ -21,11 +21,9 @@ class Hypothesis:
         decoded toekn and all the informations associated with it"""
         return Hypothesis(
             tokens=self.tokens + [token],  # we add the decoded token
-            log_probs=self.log_probs
-            + [log_prob],  # we add the log prob of the decoded token
+            log_probs=self.log_probs + [log_prob],  # we add the log prob of the decoded token
             state=state,  # we update the state
-            attn_dists=self.attn_dists
-            + [attn_dist],  # we  add the attention dist of the decoded token
+            attn_dists=self.attn_dists + [attn_dist],  # we  add the attention dist of the decoded token
             p_gens=self.p_gens + [p_gen],  # we add the p_gen
         )
 
@@ -67,9 +65,7 @@ def beam_decode(model, batch, vocab, params):
             dec_input,
             batch[0]["max_oov_len"],
         )
-        top_k_probs, top_k_ids = tf.nn.top_k(
-            tf.squeeze(final_dists), k=params["beam_size"] * 2
-        )
+        top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(final_dists), k=params["beam_size"] * 2)
         top_k_log_probs = tf.math.log(top_k_probs)
         results = {
             "last_context_vector": context_vector,
@@ -102,27 +98,14 @@ def beam_decode(model, batch, vocab, params):
     results = []  # list to hold the top beam_size hypothesises
     steps = 0  # initial step
 
-    while (
-        steps < params["max_dec_steps"] and len(results) < params["beam_size"]
-    ):
-        latest_tokens = [
-            h.latest_token for h in hyps
-        ]  # latest token for each hypothesis , shape : [beam_size]
-        latest_tokens = [
-            t if t in range(params["vocab_size"]) else vocab.word_to_id("[UNK]")
-            for t in latest_tokens
-        ]  # we replace all the oov is by the unknown token
-        states = [
-            h.state for h in hyps
-        ]  # we collect the last states for each hypothesis
+    while steps < params["max_dec_steps"] and len(results) < params["beam_size"]:
+        latest_tokens = [h.latest_token for h in hyps]  # latest token for each hypothesis , shape : [beam_size]
+        # we replace all the oov is by the unknown token
+        latest_tokens = [t if t in range(params["vocab_size"]) else vocab.word_to_id("[UNK]") for t in latest_tokens]
+        states = [h.state for h in hyps]  # we collect the last states for each hypothesis
 
         # we decode the top likely 2 x beam_size tokens tokens at time step t for each hypothesis
-        returns = decode_onestep(
-            batch,
-            enc_outputs,
-            tf.stack(states, axis=0),
-            tf.expand_dims(latest_tokens, axis=1),
-        )
+        returns = decode_onestep(batch, enc_outputs, tf.stack(states, axis=0), tf.expand_dims(latest_tokens, axis=1))
         topk_ids, topk_log_probs, new_states, attn_dists, p_gens = (
             returns["top_k_ids"],
             returns["top_k_log_probs"],
@@ -133,41 +116,25 @@ def beam_decode(model, batch, vocab, params):
         all_hyps = []
         num_orig_hyps = 1 if steps == 0 else len(hyps)
         for i in range(num_orig_hyps):
-            h, new_state, attn_dist, p_gen = (
-                hyps[i],
-                new_states[i],
-                attn_dists[i],
-                p_gens[i],
-            )
+            h, new_state, attn_dist, p_gen = (hyps[i], new_states[i], attn_dists[i], p_gens[i])
 
             for j in range(params["beam_size"] * 2):
                 # we extend each hypothesis with each of the top k tokens
                 # (this gives 2 x beam_size new hypothesises for each of the beam_size old hypothesises)
-                new_hyp = h.extend(
-                    token=topk_ids[i, j].numpy(),
-                    log_prob=topk_log_probs[i, j],
-                    state=new_state,
-                    attn_dist=attn_dist,
-                    p_gen=p_gen,
-                )
+                new_hyp = h.extend(token=topk_ids[i, j].numpy(), log_prob=topk_log_probs[i, j], state=new_state, attn_dist=attn_dist, p_gen=p_gen)
                 all_hyps.append(new_hyp)
 
         # in the following lines, we sort all the hypothesises, and select
         # only the beam_size most likely hypothesises
         hyps = []
-        sorted_hyps = sorted(
-            all_hyps, key=lambda h: h.avg_log_prob, reverse=True
-        )
+        sorted_hyps = sorted(all_hyps, key=lambda h: h.avg_log_prob, reverse=True)
         for h in sorted_hyps:
             if h.latest_token == vocab.word_to_id("[STOP]"):
                 if steps >= params["min_dec_steps"]:
                     results.append(h)
             else:
                 hyps.append(h)
-            if (
-                len(hyps) == params["beam_size"]
-                or len(results) == params["beam_size"]
-            ):
+            if len(hyps) == params["beam_size"] or len(results) == params["beam_size"]:
                 break
 
         steps += 1
@@ -179,11 +146,7 @@ def beam_decode(model, batch, vocab, params):
     # the most likely ouput sequence, given the input fed to the model
     hyps_sorted = sorted(results, key=lambda h: h.avg_log_prob, reverse=True)
     best_hyp = hyps_sorted[0]
-    best_hyp.abstract = " ".join(
-        Data_Helper.output_to_words(
-            best_hyp.tokens, vocab, batch[0]["article_oovs"][0]
-        )[1:-1],
-    )
+    best_hyp.abstract = " ".join(Data_Helper.output_to_words(best_hyp.tokens, vocab, batch[0]["article_oovs"][0])[1:-1])
     best_hyp.text = batch[0]["article"].numpy()[0].decode()
     if params["mode"] == "eval":
         best_hyp.real_abstract = batch[1]["abstract"].numpy()[0].decode()
