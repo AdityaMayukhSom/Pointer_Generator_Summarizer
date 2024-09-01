@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from batcher import Data_Helper
+from batcher import DataHelper
 
 
 class Hypothesis:
@@ -146,7 +146,7 @@ def beam_decode(model, batch, vocab, params):
     # the most likely ouput sequence, given the input fed to the model
     hyps_sorted = sorted(results, key=lambda h: h.avg_log_prob, reverse=True)
     best_hyp = hyps_sorted[0]
-    best_hyp.abstract = " ".join(Data_Helper.output_to_words(best_hyp.tokens, vocab, batch[0]["article_oovs"][0])[1:-1])
+    best_hyp.abstract = " ".join(DataHelper.output_to_words(best_hyp.tokens, vocab, batch[0]["article_oovs"][0])[1:-1])
     best_hyp.text = batch[0]["article"].numpy()[0].decode()
     if params["mode"] == "eval":
         best_hyp.real_abstract = batch[1]["abstract"].numpy()[0].decode()
