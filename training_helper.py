@@ -1,7 +1,24 @@
 import time
 import keras
+import logging
 import tensorflow as tf
 from model import PGN
+
+
+def define_logger(log_file):
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+    # get TF logger
+    log = logging.getLogger("tensorflow")
+    log.setLevel(logging.DEBUG)
+
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+    log.addHandler(fh)
 
 
 class ModelTrainer:
@@ -18,9 +35,7 @@ class ModelTrainer:
         self.loss_object = keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction=None)  # type: ignore
 
         self.optimizer = keras.optimizers.Adagrad(
-            params["learning_rate"],
-            initial_accumulator_value=params["adagrad_init_acc"],
-            clipnorm=params["max_grad_norm"],
+            params["learning_rate"], initial_accumulator_value=params["adagrad_init_acc"], clipnorm=params["max_grad_norm"]
         )
 
     def loss_function(self, real: tf.Tensor, pred: tf.Tensor) -> tf.Tensor:
