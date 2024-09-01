@@ -90,9 +90,6 @@ class ModelTrainer:
             if gradients is None:
                 raise ValueError("gradients cannot be none")
 
-            # if any(g is None for g in gradients):
-            #     raise ValueError("one or more gradients are None")
-
             self.optimizer.apply_gradients(zip(gradients, variables))
 
         return loss
