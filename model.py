@@ -71,13 +71,17 @@ class PGN(keras.Model):
 
         return final_dists
 
-    def call(self, enc_output, dec_hidden, enc_inp, enc_extended_inp, dec_inp, batch_oov_len):
+    def call(self, enc_inp, enc_extended_inp, dec_inp, batch_oov_len):
         VOCAB_SIZE = self.params["vocab_size"]
         BATCH_SIZE = self.params["batch_size"]
+
+        enc_hidden, enc_output = self.model.call_encoder(enc_inp)
+        dec_hidden = enc_hidden
 
         predictions = []
         attentions = []
         p_gens = []
+
         context_vector, _ = self.attention(dec_hidden, enc_output)
 
         for t in range(dec_inp.shape[1]):
