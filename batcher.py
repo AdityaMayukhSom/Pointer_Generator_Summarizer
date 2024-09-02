@@ -10,7 +10,7 @@ class Vocab:
     START_DECODING = "[START]"
     STOP_DECODING = "[STOP]"
 
-    def __init__(self, vocab_file, max_size):
+    def __init__(self, vocab_file: str, max_size: int):
         self.word2id = {Vocab.UNKNOWN_TOKEN: 0, Vocab.PAD_TOKEN: 1, Vocab.START_DECODING: 2, Vocab.STOP_DECODING: 3}
         self.id2word = {0: Vocab.UNKNOWN_TOKEN, 1: Vocab.PAD_TOKEN, 2: Vocab.START_DECODING, 3: Vocab.STOP_DECODING}
         self.count = 4
@@ -38,12 +38,12 @@ class Vocab:
 
         print("Finished constructing vocabulary of %i total words. Last word added: %s" % (self.count, self.id2word[self.count - 1]))
 
-    def word_to_id(self, word):
+    def word_to_id(self, word: str):
         if word not in self.word2id:
             return self.word2id[Vocab.UNKNOWN_TOKEN]
         return self.word2id[word]
 
-    def id_to_word(self, word_id):
+    def id_to_word(self, word_id: int):
         if word_id not in self.id2word:
             raise ValueError("Id not found in vocab: %d" % word_id)
         return self.id2word[word_id]
@@ -54,19 +54,45 @@ class Vocab:
 
 class DataHelper:
     @staticmethod
-    def article_to_ids(article_words, vocab):
-        ids = []
-        oovs = []
+    def article_to_ids(article_words: list[str], vocab: Vocab):
+        """
+        Converts a list of article words (tokenized words) into a list
+        of integers corresponding to the id of individual words.
+
+        Args:
+            article_words (list[str]): A list containing tokenized words.
+            vocab (Vocab): An object containing the text vocabulary.
+
+        Returns:
+            tuple[ list[int], list[str] ]: A tuple containing two elements.
+            The first element is 'ids' which is a list containing all the
+            ids of the words used for the article. The second element is
+            another list containing the out of vocabulary words.
+        """
+
+        ids: list[int] = []
+        oovs: list[str] = []
+
         unk_id = vocab.word_to_id(vocab.UNKNOWN_TOKEN)
+
         for w in article_words:
             i = vocab.word_to_id(w)
-            if i == unk_id:  # If w is OOV
-                if w not in oovs:  # Add to list of OOVs
+
+            if i == unk_id:
+                # If w is OOV
+
+                if w not in oovs:
+                    # Add to list of OOVs
                     oovs.append(w)
-                oov_num = oovs.index(w)  # This is 0 for the first article OOV, 1 for the second article OOV...
-                ids.append(vocab.size() + oov_num)  # This is e.g. 50000 for the first article OOV, 50001 for the second...
+
+                # This is 0 for the first article OOV, 1 for the second article OOV...
+                oov_num = oovs.index(w)
+
+                # This is e.g. 50000 for the first article OOV, 50001 for the second...
+                ids.append(vocab.size() + oov_num)
             else:
                 ids.append(i)
+
         return ids, oovs
 
     @staticmethod
@@ -206,7 +232,7 @@ def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_si
             yield output
 
 
-def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch_size, mode):
+def batch_generator(generator, filenames, vocab: Vocab, max_enc_len: int, max_dec_len: int, batch_size: int, mode):
     dataset = tf.data.Dataset.from_generator(
         lambda: generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size),
         output_types={
@@ -274,7 +300,6 @@ def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch
                 "article_oovs": entry["article_oovs"],
                 "enc_len": entry["enc_len"],
                 "article": entry["article"],
-                "max_oov_len": tf.shape(entry["article_oovs"])[1],  # type: ignore
             },
             {
                 "dec_input": entry["dec_input"],
