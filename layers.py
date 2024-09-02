@@ -1,5 +1,5 @@
-import numpy as np
 import keras
+import numpy as np
 import tensorflow as tf
 
 
@@ -16,8 +16,8 @@ class Encoder(keras.layers.Layer):
             recurrent_initializer="glorot_uniform",
         )
 
-        forward_layer = keras.layers.LSTM(10, return_sequences=True, recurrent_initializer="glorot_uniform")
-        backward_layer = keras.layers.LSTM(10, activation="relu", return_sequences=True, go_backwards=True, recurrent_initializer="glorot_uniform")
+        forward_layer = keras.layers.LSTM(10, return_sequences=True)
+        backward_layer = keras.layers.LSTM(10, activation="relu", return_sequences=True, go_backwards=True)
         self.bidirectional = keras.layers.Bidirectional(forward_layer, backward_layer=backward_layer)
 
     def call(self, x, hidden):
@@ -125,98 +125,6 @@ class PositionalEmbedding(keras.layers.Layer):
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         x = x + self.pos_encoding[tf.newaxis, :length, :]  # type: ignore
         return x
-
-
-class MultiHeadAttentionBlock(keras.layers.Layer):
-    @staticmethod
-    def __attention(
-        query: tf.Tensor, key: tf.Tensor, value: tf.Tensor, mask: tf.Tensor | None = None, dropout: keras.layers.Dropout | None = None
-    ) -> tuple[tf.Tensor, tf.Tensor]:
-        # returns the computed attention for further processing along with attention
-        # scores for visualization of the impact of words in a sentence
-
-        d_k = query.shape[-1]  # query is a tensor with shape (batch, h, seq_len, d_k)
-
-        # (batch, h, seq_len, d_k) @ (batch, h, d_k, seq_len) [produced via transposing last 2 dimensions]
-        # multiplication produces a tensor of dimensions (batch, h, seq_len, seq_len)
-        attention_scores = tf.matmul(query, key, transpose_b=True) / tf.math.sqrt(tf.cast(d_k, tf.float32))
-
-        if mask is not None:
-            attention_scores += tf.multiply(mask, -1e9)
-
-        attention_scores = tf.nn.softmax(attention_scores, axis=-1)
-
-        if dropout is not None:
-            attention_scores = dropout(attention_scores)
-
-        if not isinstance(attention_scores, tf.Tensor):
-            raise ValueError("attention scores are not an instance of tf.Tensor")
-
-        # (batch, h, seq_len, seq_len) @ (batch, h, seq_len, d_k) -> (batch, h, seq_len, d_k)
-        H = tf.matmul(attention_scores, value)
-
-        return H, attention_scores
-
-    def __init__(self, d_model: int, h: int, dropout: float):
-        super(MultiHeadAttentionBlock, self).__init__()
-
-        self.d_model = d_model
-        self.h = h
-
-        # divide the embedding dimension into h equal dimensional heads
-        assert d_model % h == 0, "d_model is not divisible by h"
-
-        self.d_k = d_model // h
-
-        # all of the below layers do x*W^t + b, we can disable the bias via passing use_bias as False
-        self.W_q = keras.layers.Dense(d_model, use_bias=False)
-        self.W_k = keras.layers.Dense(d_model, use_bias=False)
-        self.W_v = keras.layers.Dense(d_model, use_bias=False)
-        self.W_o = keras.layers.Dense(d_model, use_bias=False)
-        self.dropout = keras.layers.Dropout(dropout)
-
-    def call(self, Q: tf.Tensor, K: tf.Tensor, V: tf.Tensor, mask: tf.Tensor | None = None):
-
-        batch_size = tf.shape(query)[0]  # type: ignore
-        seq_len = tf.shape(query)[1]  # type: ignore
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        query = self.W_q(Q)
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        key = self.W_k(K)
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        value = self.W_v(V)
-
-        # remember that, d_model = d_k * h
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, h, d_k)
-        query = tf.reshape(query, (batch_size, seq_len, self.h, self.d_k))
-        # (batch, seq_len, h, d_k) -> (batch, h, seq_len, d_k)
-        query = tf.transpose(query, perm=[0, 2, 1, 3])
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, h, d_k)
-        key = tf.reshape(key, (batch_size, seq_len, self.h, self.d_k))
-        # (batch, seq_len, h, d_k) -> (batch, h, seq_len, d_k)
-        key = tf.transpose(key, perm=[0, 2, 1, 3])
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, h, d_k)
-        value = tf.reshape(value, (batch_size, seq_len, self.h, self.d_k))
-        # (batch, seq_len, h, d_k) -> (batch, h, seq_len, d_k)
-        value = tf.transpose(value, perm=[0, 2, 1, 3])
-
-        # dim(H) = (batch, h, seq_len, d_k), dim(attention_scores) = (batch, h, seq_len, seq_len)
-        H, self_attention_scores = MultiHeadAttentionBlock.__attention(query, key, value, mask, self.dropout)
-
-        # (batch, h, seq_len, d_k) -> (batch, seq_len, h, d_k) -> (batch, seq_len, d_model)
-        H = tf.transpose(H, perm=[0, 2, 1, 3])
-        H = tf.reshape(H, (batch_size, seq_len, self.d_model))
-
-        # (batch, seq_len, d_model) -> (batch, seq_len, d_model)
-        MH_A = self.W_o(H)
-
-        return MH_A
 
 
 class BaseAttention(keras.layers.Layer):
@@ -508,6 +416,7 @@ class DecoderGRU(keras.layers.Layer):
 
 
 class Pointer(keras.layers.Layer):
+
     def __init__(self):
         super(Pointer, self).__init__()
         self.w_s_reduce = keras.layers.Dense(1)
