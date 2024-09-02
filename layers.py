@@ -9,6 +9,7 @@ class Encoder(keras.layers.Layer):
         self.batch_sz = batch_sz
         self.enc_units = enc_units
         self.embedding = keras.layers.Embedding(vocab_size, embedding_dim)
+
         self.gru = keras.layers.GRU(
             self.enc_units,
             return_sequences=True,
@@ -16,8 +17,24 @@ class Encoder(keras.layers.Layer):
             recurrent_initializer="glorot_uniform",
         )
 
-        forward_layer = keras.layers.LSTM(10, return_sequences=True)
-        backward_layer = keras.layers.LSTM(10, activation="relu", return_sequences=True, go_backwards=True)
+        forward_layer = keras.layers.LSTM(
+            enc_units,
+            return_sequences=True,
+            return_state=True,
+            recurrent_initializer="glorot_uniform",
+            activation="sigmoid",
+            go_backwards=False,
+        )
+
+        backward_layer = keras.layers.LSTM(
+            enc_units,
+            return_sequences=True,
+            return_state=True,
+            recurrent_initializer="glorot_uniform",
+            activation="sigmoid",
+            go_backwards=True,
+        )
+
         self.bidirectional = keras.layers.Bidirectional(forward_layer, backward_layer=backward_layer)
 
     def call(self, x, hidden):
