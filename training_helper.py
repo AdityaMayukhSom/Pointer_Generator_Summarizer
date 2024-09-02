@@ -35,7 +35,9 @@ class ModelTrainer:
         self.loss_object = keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction=None)  # type: ignore
 
         self.optimizer = keras.optimizers.Adagrad(
-            params["learning_rate"], initial_accumulator_value=params["adagrad_init_acc"], clipnorm=params["max_grad_norm"]
+            learning_rate=params["learning_rate"],
+            initial_accumulator_value=params["adagrad_init_acc"],
+            clipnorm=params["max_grad_norm"],
         )
 
     def loss_function(self, real: tf.Tensor, pred: tf.Tensor) -> tf.Tensor:
@@ -54,13 +56,13 @@ class ModelTrainer:
 
         mask = tf.math.equal(real, tf.constant(1))
         mask = tf.math.logical_not(mask)
-        mask = tf.cast(mask, dtype=loss_.dtype)
+        mask = tf.cast(mask, dtype=tf.float32)
 
         if not isinstance(mask, tf.Tensor):
             raise ValueError(f"mask is of type {type(mask)}, should be an instange of tf.Tensor")
 
         # dec_lens contains row-wise sums of the mask, basically elements which has been decoded
-        dec_lens: tf.Tensor = tf.reduce_sum(tf.cast(mask, dtype=tf.float32), axis=-1)
+        dec_lens: tf.Tensor = tf.reduce_sum(mask, axis=-1)
 
         loss_ = tf.multiply(loss_, mask)
         # we have to make sure no empty abstract is being used otherwise dec_lens may contain null values
@@ -77,19 +79,29 @@ class ModelTrainer:
     #     tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
     #     tf.TensorSpec(shape=[], dtype=tf.int32),
     # ]
-
     @tf.function
     def train_step(
-        self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, dec_tar: tf.Tensor, batch_oov_len: tf.Tensor, training: bool
+        self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, dec_tar: tf.Tensor, batch_oov_len: tf.Tensor
     ) -> tf.Tensor:
+        """
+        Args:
+            enc_inp (tf.Tensor): Numerical encoding of the input article along with OOV words as UNK.
+            enc_extended_inp (tf.Tensor): Tensor containing the ids of the words present in the article
+                along with ids for the OOV words.
+            dec_inp (tf.Tensor): Tensor containing the numerical ids of (start token + abstract).
+            dec_tar (tf.Tensor): Tensor containing the numerical ids of (abstract + end token).
+            batch_oov_len (tf.Tensor): Maximum number of OOV words present in this example.
+        Raises:
+            ValueError: In case some gradients become None during training.
+
+        Returns:
+            tf.Tensor: The mean loss value for the particular training step.
+        """
+
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
-
-            # tape.watch(variables)
-            enc_hidden, enc_output = self.model.call_encoder(enc_inp)
-
-            predictions, _ = self.model(enc_output, enc_hidden, enc_inp, enc_extended_inp, dec_inp, batch_oov_len, training=training)
+            predictions, _ = self.model(enc_inp, enc_extended_inp, dec_inp, batch_oov_len, training=True)
 
             variables = (
                 self.model.encoder.trainable_variables
@@ -99,7 +111,6 @@ class ModelTrainer:
             )
 
             loss = self.loss_function(dec_tar, predictions)
-
             gradients = tape.gradient(target=loss, sources=variables)
 
             if gradients is None:
@@ -113,15 +124,18 @@ class ModelTrainer:
         try:
             f = open(out_file, "w+")
             for batch in self.dataset:
+                # len(batch) is 2, batch is a tuple of two elements
+
                 t0 = time.time()
+
+                max_oov_len = batch[0]["article_oovs"].shape[1]
 
                 loss = self.train_step(
                     batch[0]["enc_input"],
                     batch[0]["extended_enc_input"],
                     batch[1]["dec_input"],
                     batch[1]["dec_target"],
-                    batch[0]["max_oov_len"],
-                    training=True,
+                    max_oov_len,
                 )
 
                 t1 = time.time()
