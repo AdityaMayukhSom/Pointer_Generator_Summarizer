@@ -89,7 +89,7 @@ class PGN(keras.Model):
             attentions.append(attn)
             p_gens.append(p_gen)
 
-        final_dists = _calc_final_dist(enc_extended_inp, predictions, attentions, p_gens, batch_oov_len, VOCAB_SIZE, BATCH_SIZE)
+        final_dists = self._calc_final_dist(enc_extended_inp, predictions, attentions, p_gens, batch_oov_len, VOCAB_SIZE, BATCH_SIZE)
 
         if self.params["mode"] == "train":
             # predictions_shape = (batch_size, dec_len, vocab_size) with dec_len = 1 in pred mode
