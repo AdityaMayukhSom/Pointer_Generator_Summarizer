@@ -1,6 +1,6 @@
 import keras
 import tensorflow as tf
-from layers import Encoder, BahdanauAttention, Decoder, Pointer
+from layers import Encoder, EncoderReducer, BahdanauAttention, Decoder, Pointer
 
 
 class PGN(keras.Model):
@@ -17,14 +17,10 @@ class PGN(keras.Model):
         self.params = params
 
         self.encoder = Encoder(VOCAB_SIZE, EMBED_SIZE, ENC_UNITS, BATCH_SIZE)
+        self.encoder_reducer = EncoderReducer(ENC_UNITS)
         self.attention = BahdanauAttention(ATTN_UNITS)
         self.decoder = Decoder(VOCAB_SIZE, EMBED_SIZE, DEC_UNITS, BATCH_SIZE)
         self.pointer = Pointer()
-
-    def call_encoder(self, enc_inp):
-        enc_hidden = self.encoder.initialize_hidden_state()
-        enc_output, enc_hidden = self.encoder(enc_inp, enc_hidden)
-        return enc_hidden, enc_output
 
     def _calc_final_dist(self, _enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size):
         """
@@ -75,7 +71,9 @@ class PGN(keras.Model):
         VOCAB_SIZE = self.params["vocab_size"]
         BATCH_SIZE = self.params["batch_size"]
 
-        enc_hidden, enc_output = self.model.call_encoder(enc_inp)
+        enc_hidden = self.encoder.initialize_hidden_state()
+        enc_output, enc_hidden = self.encoder(enc_inp, enc_hidden)
+
         dec_hidden = enc_hidden
 
         predictions = []

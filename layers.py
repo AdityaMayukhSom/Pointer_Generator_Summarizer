@@ -47,6 +47,26 @@ class Encoder(keras.layers.Layer):
         return initializer(shape=(self.batch_sz, self.enc_units))
 
 
+class EncoderReducer(keras.layers.Layer):
+    """
+    Reduces the Bi-LSTM outputs to a unidirectional LSTM output space.
+    """
+
+    def __init__(self, units: int):
+        super(EncoderReducer, self).__init__()
+        self.c_reducer = keras.layers.Dense(units)
+        self.h_recuder = keras.layers.Dense(units)
+
+    def call(self, forward_c: tf.Tensor, forward_h: tf.Tensor, backward_c: tf.Tensor, backward_h: tf.Tensor):
+        old_c = tf.concat([forward_c, backward_c], axis=1)
+        old_h = tf.concat([forward_h, backward_h], axis=1)
+
+        new_c = tf.nn.relu(self.c_reducer(old_c))
+        new_h = tf.nn.relu(self.h_recuder(old_h))
+
+        return new_c, new_h
+
+
 class BahdanauAttention(keras.layers.Layer):
     def __init__(self, units):
         super(BahdanauAttention, self).__init__()

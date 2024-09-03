@@ -105,6 +105,7 @@ class ModelTrainer:
 
             variables = (
                 self.model.encoder.trainable_variables
+                + self.model.encoder_reducer.trainable_variables
                 + self.model.attention.trainable_variables
                 + self.model.decoder.trainable_variables
                 + self.model.pointer.trainable_variables
