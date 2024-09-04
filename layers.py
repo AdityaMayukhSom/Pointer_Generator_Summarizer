@@ -4,6 +4,8 @@ import tensorflow as tf
 
 
 class Encoder(keras.layers.Layer):
+    # TODO: Positional Encoding Helps Recurrent Neural Networks Handle a Large Vocabulary
+    # https://arxiv.org/pdf/2402.00236v1
     def __init__(self, vocab_size, embedding_dim, enc_units: int, batch_sz: int):
         super(Encoder, self).__init__()
         self.batch_sz = batch_sz
@@ -417,6 +419,18 @@ class FeedForward(keras.layers.Layer):
         return x
 
 
+class Pointer(keras.layers.Layer):
+
+    def __init__(self):
+        super(Pointer, self).__init__()
+        self.w_s_reduce = keras.layers.Dense(1)
+        self.w_i_reduce = keras.layers.Dense(1)
+        self.w_c_reduce = keras.layers.Dense(1)
+
+    def call(self, context_vector, state, dec_inp):
+        return tf.nn.sigmoid(self.w_s_reduce(state) + self.w_c_reduce(context_vector) + self.w_i_reduce(dec_inp))
+
+
 class DecoderGRU(keras.layers.Layer):
     def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz):
         super(DecoderGRU, self).__init__()
@@ -450,15 +464,3 @@ class DecoderGRU(keras.layers.Layer):
         out = self.fc(output)
 
         return x, out, state
-
-
-class Pointer(keras.layers.Layer):
-
-    def __init__(self):
-        super(Pointer, self).__init__()
-        self.w_s_reduce = keras.layers.Dense(1)
-        self.w_i_reduce = keras.layers.Dense(1)
-        self.w_c_reduce = keras.layers.Dense(1)
-
-    def call(self, context_vector, state, dec_inp):
-        return tf.nn.sigmoid(self.w_s_reduce(state) + self.w_c_reduce(context_vector) + self.w_i_reduce(dec_inp))
