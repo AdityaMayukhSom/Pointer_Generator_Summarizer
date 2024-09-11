@@ -81,7 +81,12 @@ class ModelTrainer:
     # ]
     @tf.function
     def train_step(
-        self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, dec_tar: tf.Tensor, batch_oov_len: tf.Tensor
+        self,
+        enc_inp: tf.Tensor,
+        enc_extended_inp: tf.Tensor,
+        dec_inp: tf.Tensor,
+        dec_tar: tf.Tensor,
+        batch_oov_len: tf.Tensor,
     ) -> tf.Tensor:
         """
         Args:
@@ -101,14 +106,14 @@ class ModelTrainer:
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
-            predictions, _ = self.model(enc_inp, enc_extended_inp, dec_inp, batch_oov_len, training=True)
+            predictions, _ = self.model(enc_inp, enc_extended_inp, dec_inp, batch_oov_len=batch_oov_len, training=True)
 
             variables = (
-                self.model.encoder.trainable_variables
-                + self.model.encoder_reducer.trainable_variables
-                + self.model.attention.trainable_variables
+                self.model.enc_pos_emb.trainable_variables
+                + self.model.encoder.trainable_variables
+                + self.model.dec_pos_emb.trainable_variables
                 + self.model.decoder.trainable_variables
-                + self.model.pointer.trainable_variables
+                + self.model.final_layer.trainable_variables
             )
 
             loss = self.loss_function(dec_tar, predictions)

@@ -1,6 +1,8 @@
 import keras
 import tensorflow as tf
-from layers import Encoder, EncoderReducer, BahdanauAttention, DecoderLayer, Pointer, PositionalEmbedding
+from encoder import Encoder, EncoderReducer
+from decoder import Decoder
+from embedding import PositionalEmbedding
 
 
 class PGN(keras.Model):
@@ -8,28 +10,89 @@ class PGN(keras.Model):
         super(PGN, self).__init__()
 
         VOCAB_SIZE = params["vocab_size"]
-        EMBED_SIZE = params["embed_size"]  # size of the embedding, essentially equal to d_model
+        BATCH_SIZE = params["batch_size"]
+
+        # size of the embedding, essentially equal to d_model
+        EMBED_SIZE = params["embed_size"]
+
         ENC_UNITS = params["enc_units"]
         DEC_UNITS = params["dec_units"]
+
+        MAX_ENC_LENGTH = params["max_enc_len"]
+        MAX_DEC_LENGTH = params["max_dec_len"]
+
+        self.NUM_HEADS = 4
         ATTN_UNITS = params["attn_units"]
-        BATCH_SIZE = params["batch_size"]
-        NUM_HEADS = 4
-        NUM_DECODERS = 6
         DROPOUT_RATE = 0.2
 
         self.params = params
 
-        self.embedding = keras.layers.Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_SIZE)
-        self.encoder = Encoder(VOCAB_SIZE, EMBED_SIZE, ENC_UNITS, BATCH_SIZE)
+        self.enc_pos_emb = PositionalEmbedding(MAX_ENC_LENGTH, VOCAB_SIZE, EMBED_SIZE)
+        self.encoder = Encoder(ENC_UNITS, BATCH_SIZE)
         self.encoder_reducer = EncoderReducer(ENC_UNITS)
-        self.attention = BahdanauAttention(ATTN_UNITS)
-        self.pos_embedding = PositionalEmbedding(vocab_size=VOCAB_SIZE, d_model=EMBED_SIZE, embedding=self.embedding)
+
+        # self.attention = BahdanauAttention(ATTN_UNITS)
+        # self.pointer = Pointer()
+
+        self.dec_pos_emb = PositionalEmbedding(MAX_DEC_LENGTH, VOCAB_SIZE, EMBED_SIZE)
+        self.decoder = Decoder(DEC_UNITS, EMBED_SIZE, self.NUM_HEADS, 2048)
         self.dropout = keras.layers.Dropout(DROPOUT_RATE)
 
-        self.decoder_layers = [DecoderLayer(VOCAB_SIZE, EMBED_SIZE, DEC_UNITS, BATCH_SIZE) for _ in range(NUM_DECODERS)]
-        self.pointer = Pointer()
+        self.final_layer = keras.layers.Dense(VOCAB_SIZE)
 
-    def _calc_final_dist(self, _enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size):
+    def create_padding_mask(self, seq):
+        seq = tf.cast(tf.math.equal(seq, 1), tf.float32)
+
+        # add extra dimensions to add the padding
+        # to the attention logits.
+        return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len) # type: ignore
+
+    def create_look_ahead_mask(self, size):
+        mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+        return mask  # (seq_len, seq_len)
+
+    def create_masks(self, inp, tar):
+        # Encoder padding mask
+        enc_padding_mask = self.create_padding_mask(inp)
+
+        # Used in the 2nd attention block in the decoder.
+        # This padding mask is used to mask the encoder outputs.
+        dec_padding_mask = self.create_padding_mask(inp)
+
+        # Used in the 1st attention block in the decoder.
+        # It is used to pad and mask future tokens in the input received by the decoder.
+        target_shape = tf.shape(tar)[1]  # type: ignore
+        look_ahead_mask = self.create_look_ahead_mask(target_shape)
+        dec_target_padding_mask = self.create_padding_mask(tar)
+        combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+
+        return enc_padding_mask, combined_mask, dec_padding_mask
+
+    def rnn_generate_mask_old(self, src, tgt):
+        # Source mask (src != 0) and expand dimensions without indexing
+        src_mask = tf.cast(tf.not_equal(src, 0), dtype=tf.float32)
+        src_mask = tf.expand_dims(src_mask, axis=1)
+        src_mask = tf.expand_dims(src_mask, axis=2)
+
+        # Target mask (tgt != 0) and expand dimensions without indexing
+        tgt_mask = tf.cast(tf.not_equal(tgt, 0), dtype=tf.float32)
+        tgt_mask = tf.expand_dims(tgt_mask, axis=1)
+        tgt_mask = tf.expand_dims(tgt_mask, axis=3)
+
+        # Sequence length of the target
+        seq_length = tf.shape(tgt)[1]  # type: ignore
+
+        # No peak mask (upper triangular matrix with 1's below diagonal and 0's above diagonal)
+        nopeak_mask = 1 - tf.linalg.band_part(tf.ones((seq_length, seq_length)), -1, 0)
+
+        # Apply no peak mask to the target mask
+        tgt_mask = tgt_mask * nopeak_mask
+
+        return src_mask, tgt_mask
+
+    def _calc_final_dist(
+        self, _enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size
+    ):
         """
         Calculate the final distribution, for the pointer-generator model.
 
@@ -70,90 +133,66 @@ class PGN(keras.Model):
         # Add the vocab distributions and the copy distributions together to get the final distributions
         # final_dists is a list length max_dec_steps; each entry is a tensor shape (batch_size, extended_vsize) giving the final distribution for that decoder timestep
         # Note that for decoder timesteps and examples corresponding to a [PAD] token, this is junk - ignore.
-        final_dists = [vocab_dist + copy_dist for (vocab_dist, copy_dist) in zip(vocab_dists_extended, attn_dists_projected)]
+        final_dists = [
+            vocab_dist + copy_dist for (vocab_dist, copy_dist) in zip(vocab_dists_extended, attn_dists_projected)
+        ]
 
         return final_dists
 
-    def generate_mask(self, src, tgt):
-        # Source mask (src != 0) and expand dimensions without indexing
-        src_mask = tf.cast(tf.not_equal(src, 0), dtype=tf.float32)
-        src_mask = tf.expand_dims(src_mask, axis=1)
-        src_mask = tf.expand_dims(src_mask, axis=2)
-
-        # Target mask (tgt != 0) and expand dimensions without indexing
-        tgt_mask = tf.cast(tf.not_equal(tgt, 0), dtype=tf.float32)
-        tgt_mask = tf.expand_dims(tgt_mask, axis=1)
-        tgt_mask = tf.expand_dims(tgt_mask, axis=3)
-
-        # Sequence length of the target
-        seq_length = tf.shape(tgt)[1]  # type: ignore
-
-        # No peak mask (upper triangular matrix with 1's below diagonal and 0's above diagonal)
-        nopeak_mask = 1 - tf.linalg.band_part(tf.ones((seq_length, seq_length)), -1, 0)
-
-        # Apply no peak mask to the target mask
-        tgt_mask = tgt_mask * nopeak_mask
-
-        return src_mask, tgt_mask
-
-    def call(self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, batch_oov_len):
+    def call(self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, batch_oov_len, training: bool):
         VOCAB_SIZE = self.params["vocab_size"]
         BATCH_SIZE = self.params["batch_size"]
 
-        src_mask, tgt_mask = self.generate_mask(enc_inp, dec_inp)
+        enc_pad_mask, dec_look_ahead_mask, dec_pad_mask = self.create_masks(enc_inp, dec_inp)
 
         enc_hidden = self.encoder.initialize_hidden_state()
-        enc_output, enc_forward_h, enc_forward_c, enc_backward_h, enc_backward_c = self.encoder(enc_inp, enc_hidden)
-        enc_c, enc_h = self.encoder_reducer(enc_forward_c, enc_forward_h, enc_backward_c, enc_backward_h)
 
-        dec_hidden = enc_h
-        context_vector, _ = self.attention(dec_hidden, enc_output)
+        enc_emb_input = self.enc_pos_emb(enc_inp)
+        # enc_outputs, enc_forward_h, enc_forward_c, enc_backward_h, enc_backward_c = self.encoder(enc_emb_input, enc_hidden)
+        # enc_c, enc_h = self.encoder_reducer(enc_forward_c, enc_forward_h, enc_backward_c, enc_backward_h)
+        enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
 
-        predictions = []
-        attentions = []
-        p_gens = []
+        dec_emb_input = self.dec_pos_emb(dec_inp)
+        dec_output, attn_weights, p_gens = self.decoder(
+            embed_x=dec_emb_input,
+            enc_output=enc_outputs,
+            training=training,
+            look_ahead_mask=dec_look_ahead_mask,
+            padding_mask=dec_pad_mask,
+        )
 
-        len_dec_input = dec_inp.shape.as_list()[1]
-        if len_dec_input is None:
-            raise ValueError("decoder input tensor length cannot be none")
+        # (batch_size, tar_seq_len, target_vocab_size)
+        transformer_output = self.final_layer(dec_output)
+        # (batch_size, tar_seq_len, vocab_size)
+        transformer_output = tf.nn.softmax(transformer_output)
+        # # (batch_size, targ_seq_len, vocab_size+max_oov_len)
+        # output = tf.concat([output, tf.zeros((tf.shape(output)[0], tf.shape(output)[1], max_oov_len))], axis=-1)
 
-        x = self.pos_embedding(x)  # (batch_size, target_seq_len, d_model)
+        # (batch_size,num_heads, targ_seq_len, inp_seq_len)
+        attn_dists = attn_weights["decoder_layer{}_block2".format(self.params["dec_units"])]
+        # (batch_size, targ_seq_len, inp_seq_len)
+        attn_dists = tf.reduce_sum(attn_dists, axis=1) / self.NUM_HEADS
 
-        x = self.dropout(x)
+        final_dists = self._calc_final_dist(
+            enc_extended_inp,
+            tf.unstack(transformer_output, axis=1),
+            tf.unstack(attn_dists, axis=1),
+            tf.unstack(p_gens, axis=1),
+            batch_oov_len,
+            VOCAB_SIZE,
+            BATCH_SIZE,
+        )
 
-        for i in range(self.num_layers):
-            x = self.dec_layers[i](x, context)
-
-        self.last_attn_scores = self.dec_layers[-1].last_attn_scores
-
-        # The shape of x is (batch_size, target_seq_len, d_model).
-
-        for t in range(len_dec_input):
-            if self.params["mode"] == "train":
-                # teacher forching
-                dec_input_word = tf.expand_dims(dec_inp[:, t], 1)  # type: ignore
-            else:
-                # input is the previously generated word for the decoder
-                dec_input_word = None
-
-            dec_x, pred, dec_hidden = self.decoder(dec_input_word, context_vector)
-            context_vector, attn = self.attention(dec_hidden, enc_output)
-            p_gen = self.pointer(context_vector, dec_hidden, tf.squeeze(dec_x, axis=1))
-
-            predictions.append(pred)
-            attentions.append(attn)
-            p_gens.append(p_gen)
-
-        final_dists = self._calc_final_dist(enc_extended_inp, predictions, attentions, p_gens, batch_oov_len, VOCAB_SIZE, BATCH_SIZE)
+        final_output = tf.stack(final_dists, axis=1)
 
         if self.params["mode"] == "train":
             # predictions_shape = (batch_size, dec_len, vocab_size) with dec_len = 1 in pred mode
-            return (tf.stack(final_dists, 1), dec_hidden)
+            return final_output, attn_weights
         else:
             return (
                 tf.stack(final_dists, 1),
                 dec_hidden,
                 context_vector,
-                tf.stack(attentions, 1),
-                tf.stack(p_gens, 1),
+                tf.stack(tf.unstack(attn_dists, axis=1), 1),
+                tf.stack(tf.unstack(p_gens, axis=1), 1),
             )

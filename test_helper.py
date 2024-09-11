@@ -40,6 +40,31 @@ class Hypothesis:
         return self.tot_log_prob / len(self.tokens)
 
 
+def predict(features, params, model):
+
+    output = tf.tile([[2]], [params["batch_size"], 1])  # 2 = start_decoding
+
+    for i in range(params["max_dec_len"]):
+        # predictions.shape == (batch_size, seq_len, vocab_size)
+        predictions, attention_weights = model(
+            features["enc_input"],
+            features["extended_enc_input"],
+            output,
+            features["max_oov_len"],
+            training=params["training"],
+        )
+
+        # select the last word from the seq_len dimension
+        predictions = predictions[:, -1:, :]  # (batch_size, 1, vocab_size)
+        predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
+
+        # concatentate the predicted_id to the output which is given to the decoder
+        # as its input.
+        output = tf.concat([output, predicted_id], axis=-1)
+
+    return output, attention_weights
+
+
 def beam_decode(model, batch, vocab, params):
     def decode_onestep(batch, enc_outputs, dec_state, dec_input):
         """
@@ -121,7 +146,13 @@ def beam_decode(model, batch, vocab, params):
             for j in range(params["beam_size"] * 2):
                 # we extend each hypothesis with each of the top k tokens
                 # (this gives 2 x beam_size new hypothesises for each of the beam_size old hypothesises)
-                new_hyp = h.extend(token=topk_ids[i, j].numpy(), log_prob=topk_log_probs[i, j], state=new_state, attn_dist=attn_dist, p_gen=p_gen)
+                new_hyp = h.extend(
+                    token=topk_ids[i, j].numpy(),
+                    log_prob=topk_log_probs[i, j],
+                    state=new_state,
+                    attn_dist=attn_dist,
+                    p_gen=p_gen,
+                )
                 all_hyps.append(new_hyp)
 
         # in the following lines, we sort all the hypothesises, and select

@@ -7,8 +7,8 @@ python main.py `
     --beam_size=4 `
     --vocab_size=50000 `
     --embed_size=128 `
-    --enc_units=256 `
-    --dec_units=256 `
+    --enc_units=128 `
+    --dec_units=6 `
     --attn_units=512 `
     --learning_rate=0.15 `
     --adagrad_init_acc=0.1 `
