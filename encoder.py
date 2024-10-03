@@ -28,17 +28,23 @@ class Encoder(keras.layers.Layer):
             go_backwards=True,
         )
 
+        self.bidirectional = keras.layers.Bidirectional(self.forward_layer, backward_layer=backward_layer)
+
         self.gru = keras.layers.GRU(
             self.enc_units, return_sequences=True, return_state=True, recurrent_initializer="glorot_uniform"
         )
 
-        self.bidirectional = keras.layers.Bidirectional(self.forward_layer, backward_layer=backward_layer)
+    def compute_mask(self, inputs, mask=None):
+        # Just pass the received mask from previous layer, to the next layer or
+        # manipulate it if this layer changes the shape of the input
+        return mask
 
     def call(self, x, hidden):
         # https://github.com/keras-team/keras/issues/19754
         # https://github.com/keras-team/keras/pull/19789
 
         # output, forward_h, forward_c, backward_h, backward_c = self.bidirectional(x, initial_state=hidden)
+        # return output, forward_h, forward_c, backward_h, backward_c
         output, forward_h = self.gru(x, initial_state=hidden)
         return output, forward_h
 
