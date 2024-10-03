@@ -1,7 +1,9 @@
-import time
-import keras
 import logging
+import time
+
+import keras
 import tensorflow as tf
+
 from model import PGN
 
 
@@ -49,7 +51,6 @@ class ModelTrainer:
         Returns:
             _type_: _description_
         """
-
         # an array containing row-wise losses
         loss_ = self.loss_object(real, pred)
         loss_ = tf.convert_to_tensor(loss_)
@@ -79,7 +80,6 @@ class ModelTrainer:
     #     tf.TensorSpec(shape=[params["batch_size"], params["max_dec_len"]], dtype=tf.int32),
     #     tf.TensorSpec(shape=[], dtype=tf.int32),
     # ]
-    @tf.function
     def train_step(
         self,
         enc_inp: tf.Tensor,
@@ -106,7 +106,10 @@ class ModelTrainer:
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
-            predictions, _ = self.model(enc_inp, enc_extended_inp, dec_inp, batch_oov_len=batch_oov_len, training=True)
+            enc_outputs, enc_c, enc_h = self.model.call_encoder(enc_inp)
+            predictions, _ = self.model(
+                enc_outputs, enc_inp, enc_extended_inp, dec_inp, batch_oov_len=batch_oov_len, training=True
+            )
 
             variables = (
                 self.model.enc_pos_emb.trainable_variables
@@ -126,6 +129,7 @@ class ModelTrainer:
 
         return loss
 
+    # @tf.function
     def execute(self, ckpt, ckpt_manager: tf.train.CheckpointManager, out_file: str):
         try:
             f = open(out_file, "w+")
