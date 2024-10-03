@@ -28,11 +28,13 @@ class Encoder(keras.layers.Layer):
             go_backwards=True,
         )
 
-        self.bidirectional = keras.layers.Bidirectional(self.forward_layer, backward_layer=backward_layer)
-
-        self.gru = keras.layers.GRU(
-            self.enc_units, return_sequences=True, return_state=True, recurrent_initializer="glorot_uniform"
+        self.bidirectional = keras.layers.Bidirectional(
+            self.forward_layer, backward_layer=backward_layer, merge_mode="ave"
         )
+
+        # self.gru = keras.layers.GRU(
+        #     self.enc_units, return_sequences=True, return_state=True, recurrent_initializer="glorot_uniform"
+        # )
 
     def compute_mask(self, inputs, mask=None):
         # Just pass the received mask from previous layer, to the next layer or
@@ -43,14 +45,20 @@ class Encoder(keras.layers.Layer):
         # https://github.com/keras-team/keras/issues/19754
         # https://github.com/keras-team/keras/pull/19789
 
-        # output, forward_h, forward_c, backward_h, backward_c = self.bidirectional(x, initial_state=hidden)
-        # return output, forward_h, forward_c, backward_h, backward_c
-        output, forward_h = self.gru(x, initial_state=hidden)
-        return output, forward_h
+        output, forward_h, forward_c, backward_h, backward_c = self.bidirectional(x)
+        print("bidirectional output shape", output.shape)
+        return output, forward_h, forward_c, backward_h, backward_c
+        # output, forward_h = self.gru(x, initial_state=hidden)
+        # return output, forward_h
 
     def initialize_hidden_state(self):
         initializer = keras.initializers.GlorotUniform()
-        return initializer(shape=(self.batch_sz, self.enc_units))
+
+        # multiply with 2 in case of bidirectional RNN as it will be split into
+        # two, half to forward layer, half to backward layer
+        return initializer(shape=(2 * self.batch_sz, self.enc_units))
+
+        # return initializer(shape=(self.batch_sz, self.enc_units))
 
 
 class EncoderReducer(keras.layers.Layer):

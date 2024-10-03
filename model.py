@@ -125,14 +125,15 @@ class PGN(keras.Model):
         enc_hidden = self.encoder.initialize_hidden_state()
 
         enc_emb_input = self.enc_pos_emb(enc_inp)
-        enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
-        # just to have similar returns with bidirectional lstm, the forward_c tensor should not be used
-        enc_forward_c = enc_forward_h
-        return enc_outputs, enc_forward_c, enc_forward_h
 
-        # output, forward_h, forward_c, backward_h, backward_c = self.encoder(enc_emb_input, enc_hidden)
-        # new_c, new_h = self.encoder_reducer(forward_c, forward_h, backward_c, backward_h)
-        # return output, new_c, new_h
+        # enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
+        # # just to have similar returns with bidirectional lstm, the forward_c tensor should not be used
+        # enc_forward_c = enc_forward_h
+        # return enc_outputs, enc_forward_c, enc_forward_h
+
+        output, forward_h, forward_c, backward_h, backward_c = self.encoder(enc_emb_input, enc_hidden)
+        new_c, new_h = self.encoder_reducer(forward_c, forward_h, backward_c, backward_h)
+        return output, new_c, new_h
 
     def call(
         self,
