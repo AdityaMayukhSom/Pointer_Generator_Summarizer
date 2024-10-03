@@ -1,12 +1,14 @@
-import tensorflow as tf
-from model import PGN
-from training_helper import ModelTrainer
-from test_helper import beam_decode
-from batcher import batcher, Vocab
-from tqdm import tqdm
-from rouge import Rouge
 import logging
 import pprint
+
+import tensorflow as tf
+from rouge import Rouge
+from tqdm import tqdm
+
+from batcher import Vocab, batcher
+from model import PGN
+from test_helper import beam_decode
+from training_helper import ModelTrainer
 
 
 def train(params):

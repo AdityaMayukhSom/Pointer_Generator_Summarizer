@@ -1,4 +1,5 @@
 import glob
+
 import tensorflow as tf
 
 
@@ -23,8 +24,17 @@ class Vocab:
                     continue
 
                 w = pieces[0]
-                if w in [Vocab.SENTENCE_START, Vocab.SENTENCE_END, Vocab.UNKNOWN_TOKEN, Vocab.PAD_TOKEN, Vocab.START_DECODING, Vocab.STOP_DECODING]:
-                    raise Exception("<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is" % w)
+                if w in [
+                    Vocab.SENTENCE_START,
+                    Vocab.SENTENCE_END,
+                    Vocab.UNKNOWN_TOKEN,
+                    Vocab.PAD_TOKEN,
+                    Vocab.START_DECODING,
+                    Vocab.STOP_DECODING,
+                ]:
+                    raise Exception(
+                        "<s>, </s>, [UNK], [PAD], [START] and [STOP] shouldn't be in the vocab file, but %s is" % w
+                    )
 
                 if w in self.word2id:
                     raise Exception("Duplicated word in vocabulary file: %s" % w)
@@ -33,10 +43,16 @@ class Vocab:
                 self.id2word[self.count] = w
                 self.count += 1
                 if max_size != 0 and self.count >= max_size:
-                    print("max_size of vocab was specified as %i; we now have %i words. Stopping reading." % (max_size, self.count))
+                    print(
+                        "max_size of vocab was specified as %i; we now have %i words. Stopping reading."
+                        % (max_size, self.count)
+                    )
                     break
 
-        print("Finished constructing vocabulary of %i total words. Last word added: %s" % (self.count, self.id2word[self.count - 1]))
+        print(
+            "Finished constructing vocabulary of %i total words. Last word added: %s"
+            % (self.count, self.id2word[self.count - 1])
+        )
 
     def word_to_id(self, word: str):
         if word not in self.word2id:
@@ -159,7 +175,7 @@ class DataHelper:
           start_id: integer
           stop_id: integer
         Returns:
-          inp: sequence length <=max_len starting with start_id
+          inp: sequence length <= max_len starting with start_id
           target: sequence same length as input, ending with stop_id only if there was no truncation
         """
         inp = [start_id] + sequence[:]
