@@ -84,10 +84,10 @@ def beam_decode(model, batch, vocab, params):
         # dictionary of all the ops that will be computed
         final_dists, dec_hidden, context_vector, attentions, p_gens = model(
             enc_outputs,
-            dec_state,
             batch[0]["enc_input"],
             batch[0]["extended_enc_input"],
             dec_input,
+            # dec_state,
             batch[0]["max_oov_len"],
         )
         top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(final_dists), k=params["beam_size"] * 2)
@@ -104,7 +104,7 @@ def beam_decode(model, batch, vocab, params):
 
     # We run the encoder once and then we use the results to decode each time step token
 
-    state, enc_outputs = model.call_encoder(batch[0]["enc_input"])
+    enc_outputs, enc_h, state = model.call_encoder(batch[0]["enc_input"])
 
     # Initial Hypothesises (beam_size many list)
     hyps = [
