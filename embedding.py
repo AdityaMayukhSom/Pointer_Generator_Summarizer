@@ -1,6 +1,6 @@
 import keras
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
 
 
 class PositionalEmbedding(keras.layers.Layer):
@@ -33,9 +33,7 @@ class PositionalEmbedding(keras.layers.Layer):
         angle_rates = 1 / (10000**depths)  # (1, depth)
         angle_rads = positions * angle_rates  # (pos, depth)
 
-        pos_encoding = np.concatenate(
-            [np.sin(angle_rads), np.cos(angle_rads)], axis=-1
-        )
+        pos_encoding = np.concatenate([np.sin(angle_rads), np.cos(angle_rads)], axis=-1)
 
         return tf.cast(pos_encoding, dtype=tf.float32)
 
@@ -56,13 +54,9 @@ class PositionalEmbedding(keras.layers.Layer):
         super().__init__()
         self.d_model = d_model
         self.embedding = (
-            keras.layers.Embedding(vocab_size, d_model, mask_zero=True)
-            if embedding is None
-            else embedding
+            keras.layers.Embedding(vocab_size, d_model, mask_zero=False) if embedding is None else embedding
         )
-        self.pos_encoding = self.positional_encoding(
-            length=max_sentence_length, depth=d_model
-        )
+        self.pos_encoding = self.positional_encoding(length=max_sentence_length, depth=d_model)
 
     def compute_mask(self, *args, **kwargs):
         """Computes the mask to be applied to the embeddings."""
