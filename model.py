@@ -1,8 +1,9 @@
 import keras
 import tensorflow as tf
-from encoder import Encoder, EncoderReducer
+
 from decoder import Decoder
 from embedding import PositionalEmbedding
+from encoder import Encoder, EncoderReducer
 
 
 class PGN(keras.Model):
@@ -22,6 +23,7 @@ class PGN(keras.Model):
         MAX_DEC_LENGTH = params["max_dec_len"]
 
         self.NUM_HEADS = 4
+        self.DECODER_FEED_FORWARD_HIDDEN = 2048
         ATTN_UNITS = params["attn_units"]
         DROPOUT_RATE = 0.2
 
@@ -35,60 +37,40 @@ class PGN(keras.Model):
         # self.pointer = Pointer()
 
         self.dec_pos_emb = PositionalEmbedding(MAX_DEC_LENGTH, VOCAB_SIZE, EMBED_SIZE)
-        self.decoder = Decoder(DEC_UNITS, EMBED_SIZE, self.NUM_HEADS, 2048)
+        self.decoder = Decoder(DEC_UNITS, EMBED_SIZE, self.NUM_HEADS, self.DECODER_FEED_FORWARD_HIDDEN)
         self.dropout = keras.layers.Dropout(DROPOUT_RATE)
 
         self.final_layer = keras.layers.Dense(VOCAB_SIZE)
 
-    def create_padding_mask(self, seq):
+    def compute_mask(self, inputs, mask=None):
+        # Just pass the received mask from previous layer, to the next layer or
+        # manipulate it if this layer changes the shape of the input
+        return mask
+
+    def __create_padding_mask(self, seq):
         seq = tf.cast(tf.math.equal(seq, 1), tf.float32)
 
         # add extra dimensions to add the padding
         # to the attention logits.
-        return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len) # type: ignore
+        return seq[:, tf.newaxis, :]  # (batch_size, 1, 1, seq_len) # type: ignore
 
-    def create_look_ahead_mask(self, size):
+    def __create_look_ahead_mask(self, size):
         mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
         return mask  # (seq_len, seq_len)
 
-    def create_masks(self, inp, tar):
-        # Encoder padding mask
-        enc_padding_mask = self.create_padding_mask(inp)
-
+    def __create_masks(self, inp, tar):
         # Used in the 2nd attention block in the decoder.
         # This padding mask is used to mask the encoder outputs.
-        dec_padding_mask = self.create_padding_mask(inp)
+        dec_padding_mask = self.__create_padding_mask(inp)
 
         # Used in the 1st attention block in the decoder.
         # It is used to pad and mask future tokens in the input received by the decoder.
         target_shape = tf.shape(tar)[1]  # type: ignore
-        look_ahead_mask = self.create_look_ahead_mask(target_shape)
-        dec_target_padding_mask = self.create_padding_mask(tar)
-        combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
+        look_ahead_mask = self.__create_look_ahead_mask(target_shape)
+        dec_target_padding_mask = self.__create_padding_mask(tar)
+        dec_look_ahead_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
 
-        return enc_padding_mask, combined_mask, dec_padding_mask
-
-    def rnn_generate_mask_old(self, src, tgt):
-        # Source mask (src != 0) and expand dimensions without indexing
-        src_mask = tf.cast(tf.not_equal(src, 0), dtype=tf.float32)
-        src_mask = tf.expand_dims(src_mask, axis=1)
-        src_mask = tf.expand_dims(src_mask, axis=2)
-
-        # Target mask (tgt != 0) and expand dimensions without indexing
-        tgt_mask = tf.cast(tf.not_equal(tgt, 0), dtype=tf.float32)
-        tgt_mask = tf.expand_dims(tgt_mask, axis=1)
-        tgt_mask = tf.expand_dims(tgt_mask, axis=3)
-
-        # Sequence length of the target
-        seq_length = tf.shape(tgt)[1]  # type: ignore
-
-        # No peak mask (upper triangular matrix with 1's below diagonal and 0's above diagonal)
-        nopeak_mask = 1 - tf.linalg.band_part(tf.ones((seq_length, seq_length)), -1, 0)
-
-        # Apply no peak mask to the target mask
-        tgt_mask = tgt_mask * nopeak_mask
-
-        return src_mask, tgt_mask
+        return dec_look_ahead_mask, dec_padding_mask
 
     def _calc_final_dist(
         self, _enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size
@@ -139,18 +121,39 @@ class PGN(keras.Model):
 
         return final_dists
 
-    def call(self, enc_inp: tf.Tensor, enc_extended_inp: tf.Tensor, dec_inp: tf.Tensor, batch_oov_len, training: bool):
-        VOCAB_SIZE = self.params["vocab_size"]
-        BATCH_SIZE = self.params["batch_size"]
-
-        enc_pad_mask, dec_look_ahead_mask, dec_pad_mask = self.create_masks(enc_inp, dec_inp)
-
+    def call_encoder(self, enc_inp):
         enc_hidden = self.encoder.initialize_hidden_state()
 
         enc_emb_input = self.enc_pos_emb(enc_inp)
+        enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
+        # just to have similar returns with bidirectional lstm, the forward_c tensor should not be used
+        enc_forward_c = enc_forward_h
+        return enc_outputs, enc_forward_c, enc_forward_h
+
+        # output, forward_h, forward_c, backward_h, backward_c = self.encoder(enc_emb_input, enc_hidden)
+        # new_c, new_h = self.encoder_reducer(forward_c, forward_h, backward_c, backward_h)
+        # return output, new_c, new_h
+
+    def call(
+        self,
+        enc_outputs: tf.Tensor,
+        enc_inp: tf.Tensor,
+        enc_extended_inp: tf.Tensor,
+        dec_inp: tf.Tensor,
+        batch_oov_len,
+        training: bool,
+    ):
+        VOCAB_SIZE = self.params["vocab_size"]
+        BATCH_SIZE = self.params["batch_size"]
+
+        dec_look_ahead_mask, dec_pad_mask = self.__create_masks(enc_inp, dec_inp)
+
+        # enc_hidden = self.encoder.initialize_hidden_state()
+
+        # enc_emb_input = self.enc_pos_emb(enc_inp)
         # enc_outputs, enc_forward_h, enc_forward_c, enc_backward_h, enc_backward_c = self.encoder(enc_emb_input, enc_hidden)
         # enc_c, enc_h = self.encoder_reducer(enc_forward_c, enc_forward_h, enc_backward_c, enc_backward_h)
-        enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
+        # enc_outputs, enc_forward_h = self.encoder(enc_emb_input, enc_hidden)
 
         dec_emb_input = self.dec_pos_emb(dec_inp)
         dec_output, attn_weights, p_gens = self.decoder(
