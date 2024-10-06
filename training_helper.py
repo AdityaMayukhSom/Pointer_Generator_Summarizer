@@ -4,6 +4,7 @@ import time
 import keras
 import tensorflow as tf
 
+import batcher
 from model import PGN
 
 
@@ -32,16 +33,6 @@ class ModelTrainer:
         self.max_training_steps = int(params["max_steps"])
         self.checkpoint_save_steps = int(params["checkpoints_save_steps"])
 
-        # reduction can be None as documented in the API but to make mypy happy, adding type ignore
-        # reference: https://keras.io/api/losses/probabilistic_losses/#sparsecategoricalcrossentropy-class
-        self.loss_object = keras.losses.SparseCategoricalCrossentropy(from_logits=False, reduction=None)  # type: ignore
-
-        self.optimizer = keras.optimizers.Adagrad(
-            learning_rate=params["learning_rate"],
-            initial_accumulator_value=params["adagrad_init_acc"],
-            clipnorm=params["max_grad_norm"],
-        )
-
     def loss_function(self, real: tf.Tensor, pred: tf.Tensor) -> tf.Tensor:
         """
         Args:
@@ -52,7 +43,7 @@ class ModelTrainer:
             _type_: _description_
         """
         # an array containing row-wise losses
-        loss_ = self.loss_object(real, pred)
+        loss_ = keras.losses.sparse_categorical_crossentropy(real, pred, from_logits=False)
         loss_ = tf.convert_to_tensor(loss_)
 
         mask = tf.math.equal(real, tf.constant(1))
@@ -87,6 +78,9 @@ class ModelTrainer:
         dec_inp: tf.Tensor,
         dec_tar: tf.Tensor,
         batch_oov_len: tf.Tensor,
+        vocab: batcher.Vocab,
+        article_oovs,
+        optimizer: keras.optimizers.Optimizer,
     ) -> tf.Tensor:
         """
         Args:
@@ -106,10 +100,18 @@ class ModelTrainer:
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
+            input_word_list = batcher.DataHelper.output_to_words(list(enc_inp[0].numpy()), vocab, article_oovs)
+            print("\n\n\n\n", " ".join(input_word_list))
+
             enc_outputs, enc_c, enc_h = self.model.call_encoder(enc_inp)
             predictions, _ = self.model(
                 enc_outputs, enc_inp, enc_extended_inp, dec_inp, batch_oov_len=batch_oov_len, training=True
             )
+
+            output_word_list = batcher.DataHelper.output_to_words(
+                list(tf.argmax(predictions[0, :, :], axis=1).numpy()), vocab, article_oovs
+            )
+            print(" ".join(output_word_list), "\n\n\n\n")
 
             variables = (
                 self.model.enc_pos_emb.trainable_variables
@@ -125,12 +127,19 @@ class ModelTrainer:
             if gradients is None:
                 raise ValueError("gradients cannot be none")
 
-            self.optimizer.apply_gradients(zip(gradients, variables))
+            optimizer.apply_gradients(zip(gradients, variables))
 
         return loss
 
     # @tf.function
-    def execute(self, ckpt, ckpt_manager: tf.train.CheckpointManager, out_file: str):
+    def execute(
+        self,
+        ckpt: tf.train.Checkpoint,
+        ckpt_manager: tf.train.CheckpointManager,
+        out_file: str,
+        vocab: batcher.Vocab,
+        optimizer: keras.optimizers.Optimizer,
+    ):
         try:
             f = open(out_file, "w+")
             for batch in self.dataset:
@@ -146,6 +155,9 @@ class ModelTrainer:
                     batch[1]["dec_input"],
                     batch[1]["dec_target"],
                     max_oov_len,
+                    vocab,
+                    batch[0]["article_oovs"],
+                    optimizer,
                 )
 
                 t1 = time.time()
@@ -157,20 +169,18 @@ class ModelTrainer:
                 print("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
                 f.write("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
 
-                if int(ckpt.step) == self.max_training_steps:
-                    ckpt_manager.save(checkpoint_number=int(ckpt.step))
-                    print("Saved checkpoint for step {}".format(int(ckpt.step)))
-                    f.close()
-                    break
+                if checkpoint_step % self.checkpoint_save_steps == 0 or checkpoint_step == self.max_training_steps:
+                    ckpt_manager.save(checkpoint_number=checkpoint_step)
+                    print("Saved checkpoint for step {}".format(checkpoint_step))
 
-                if int(ckpt.step) % self.checkpoint_save_steps == 0:
-                    ckpt_manager.save(checkpoint_number=int(ckpt.step))
-                    print("Saved checkpoint for step {}".format(int(ckpt.step)))
+                if checkpoint_step == self.max_training_steps:
+                    break
 
                 ckpt.step.assign_add(1)
             f.close()
 
         except KeyboardInterrupt:
-            ckpt_manager.save(int(ckpt.step))
-            print("Saved checkpoint for step {}".format(int(ckpt.step)))
+            checkpoint_step = int(ckpt.step)
+            ckpt_manager.save(checkpoint_step)
+            print("Saved checkpoint for step {}".format(checkpoint_step))
             f.close()

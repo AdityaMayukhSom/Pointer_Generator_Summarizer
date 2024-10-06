@@ -1,6 +1,7 @@
 import logging
 import pprint
 
+import keras
 import tensorflow as tf
 from rouge import Rouge
 from tqdm import tqdm
@@ -17,6 +18,13 @@ def train(params):
     logging.info("Building the model ...")
     model = PGN(params)
 
+    logging.info("Building Optimizer ...")
+    optimizer = keras.optimizers.Adagrad(
+        learning_rate=params["learning_rate"],
+        initial_accumulator_value=params["adagrad_init_acc"],
+        clipnorm=params["max_grad_norm"],
+    )
+
     print("Creating the vocab ...")
     vocab = Vocab(params["vocab_path"], params["vocab_size"])
 
@@ -25,10 +33,20 @@ def train(params):
 
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}".format(params["checkpoint_dir"])
-    ckpt = tf.train.Checkpoint(step=tf.Variable(0), PGN=model)
-    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=11)
+    ckpt = tf.train.Checkpoint(
+        step=tf.Variable(0),
+        model=model,
+        # optimizer=optimizer,
+    )
+    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
-    ckpt.restore(ckpt_manager.latest_checkpoint)
+    print("latest checkpoint", ckpt_manager.latest_checkpoint)
+    status = ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
+
+    # model.summary()
+    # status.assert_existing_objects_matched()
+    status.assert_consumed()
+
     if ckpt_manager.latest_checkpoint:
         print("Restored from {}".format(ckpt_manager.latest_checkpoint))
     else:
@@ -36,7 +54,7 @@ def train(params):
 
     logging.info("Starting the training ...")
     model_trainer = ModelTrainer(params, model, dataset_v2)
-    model_trainer.execute(ckpt, ckpt_manager, "output.txt")
+    model_trainer.execute(ckpt, ckpt_manager, "output.txt", vocab, optimizer)
 
 
 def test(params):
@@ -54,7 +72,7 @@ def test(params):
 
     print("Creating the checkpoint manager")
     checkpoint_dir = "{}".format(params["checkpoint_dir"])
-    ckpt = tf.train.Checkpoint(step=tf.Variable(0), PGN=model)
+    ckpt = tf.train.Checkpoint(step=tf.Variable(0), model=model)
     ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=11)
 
     path = params["model_path"] if params["model_path"] else ckpt_manager.latest_checkpoint

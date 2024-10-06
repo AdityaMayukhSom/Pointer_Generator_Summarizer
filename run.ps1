@@ -1,6 +1,6 @@
 python main.py `
     --max_enc_len=400 `
-    --max_dec_len=100 `
+    --max_dec_len=200 `
     --max_dec_steps=120 `
     --min_dec_steps=30 `
     --batch_size=4 `
@@ -14,12 +14,12 @@ python main.py `
     --adagrad_init_acc=0.1 `
     --max_grad_norm=0.8 `
     --mode="train" `
-    --checkpoints_save_steps=5000 `
+    --checkpoints_save_steps=2 `
     --max_steps=38000 `
     --num_to_test=5 `
     --max_num_to_eval=100 `
     --vocab_path="./tfrecords/vocab" `
     --data_dir="./tfrecords/data" `
-    --model_path="./checkpoint/ckpt-37000" `
+    --model_path="./checkpoint/ckpt-61" `
     --checkpoint_dir="./checkpoint/" `
     --test_save_dir="./test_dir/"

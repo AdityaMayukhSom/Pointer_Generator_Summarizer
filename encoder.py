@@ -46,7 +46,6 @@ class Encoder(keras.layers.Layer):
         # https://github.com/keras-team/keras/pull/19789
 
         output, forward_h, forward_c, backward_h, backward_c = self.bidirectional(x)
-        print("bidirectional output shape", output.shape)
         return output, forward_h, forward_c, backward_h, backward_c
         # output, forward_h = self.gru(x, initial_state=hidden)
         # return output, forward_h

@@ -1,5 +1,6 @@
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
+
 from batcher import DataHelper
 
 
@@ -65,43 +66,43 @@ def predict(features, params, model):
     return output, attention_weights
 
 
-def beam_decode(model, batch, vocab, params):
-    def decode_onestep(batch, enc_outputs, dec_state, dec_input):
-        """
-        Method to decode the output step by step (used for beamSearch decoding)
-        Args:
-            sess : tf.Session object
-            batch : current batch, shape = [beam_size, 1, vocab_size( + max_oov_len if pointer_gen)]
-                    (for the beam search decoding, batch_size = beam_size)
-            enc_outputs : hiddens outputs computed by the encoder LSTM
-            dec_state : beam_size-many list of decoder previous state,
-                    LSTMStateTuple objects, shape = [beam_size, 2, hidden_size]
-            dec_input : decoder_input, the previous decoded batch_size-many words,
-                        shape = [beam_size, embed_size]
-            cov_vec : beam_size-many list of previous coverage vector
-        Returns: A dictionary of the results of all the ops computations (see below for more details)
-        """
-        # dictionary of all the ops that will be computed
-        final_dists, dec_hidden, context_vector, attentions, p_gens = model(
-            enc_outputs,
-            batch[0]["enc_input"],
-            batch[0]["extended_enc_input"],
-            dec_input,
-            # dec_state,
-            batch[0]["max_oov_len"],
-        )
-        top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(final_dists), k=params["beam_size"] * 2)
-        top_k_log_probs = tf.math.log(top_k_probs)
-        results = {
-            "last_context_vector": context_vector,
-            "dec_state": dec_hidden,
-            "attention_vec": attentions,
-            "top_k_ids": top_k_ids,
-            "top_k_log_probs": top_k_log_probs,
-            "p_gen": p_gens,
-        }
-        return results
+def decode_onestep(model, beam_size, batch, enc_outputs, dec_state, dec_input):
+    """
+    Method to decode the output step by step (used for beamSearch decoding)
+    Args:
+        sess : tf.Session object
+        batch : current batch, shape = [beam_size, 1, vocab_size( + max_oov_len if pointer_gen)]
+                (for the beam search decoding, batch_size = beam_size)
+        enc_outputs : hiddens outputs computed by the encoder LSTM
+        dec_state : beam_size-many list of decoder previous state,
+                LSTMStateTuple objects, shape = [beam_size, 2, hidden_size]
+        dec_input : decoder_input, the previous decoded batch_size-many words,
+                    shape = [beam_size, embed_size]
+        cov_vec : beam_size-many list of previous coverage vector
+    Returns: A dictionary of the results of all the ops computations (see below for more details)
+    """
+    # dictionary of all the ops that will be computed
+    final_dists, dec_hidden, attentions, p_gens = model(
+        enc_outputs,
+        batch[0]["enc_input"],
+        batch[0]["extended_enc_input"],
+        dec_input,
+        # dec_state,
+        batch[0]["max_oov_len"],
+    )
+    top_k_probs, top_k_ids = tf.nn.top_k(tf.squeeze(final_dists), k=beam_size * 2)
+    top_k_log_probs = tf.math.log(top_k_probs)
+    results = {
+        "dec_state": dec_hidden,
+        "attention_vec": attentions,
+        "top_k_ids": top_k_ids,
+        "top_k_log_probs": top_k_log_probs,
+        "p_gen": p_gens,
+    }
+    return results
 
+
+def beam_decode(model, batch, vocab, params):
     # We run the encoder once and then we use the results to decode each time step token
 
     enc_outputs, enc_h, state = model.call_encoder(batch[0]["enc_input"])
@@ -130,7 +131,15 @@ def beam_decode(model, batch, vocab, params):
         states = [h.state for h in hyps]  # we collect the last states for each hypothesis
 
         # we decode the top likely 2 x beam_size tokens tokens at time step t for each hypothesis
-        returns = decode_onestep(batch, enc_outputs, tf.stack(states, axis=0), tf.expand_dims(latest_tokens, axis=1))
+        returns = decode_onestep(
+            model,
+            beam_size=params["beam_size"],
+            batch=batch,
+            enc_outputs=enc_outputs,
+            dec_state=tf.stack(states, axis=0),
+            dec_input=tf.expand_dims(latest_tokens, axis=1),
+        )
+
         topk_ids, topk_log_probs, new_states, attn_dists, p_gens = (
             returns["top_k_ids"],
             returns["top_k_log_probs"],

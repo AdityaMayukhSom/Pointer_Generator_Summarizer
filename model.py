@@ -40,7 +40,7 @@ class PGN(keras.Model):
         self.decoder = Decoder(DEC_UNITS, EMBED_SIZE, self.NUM_HEADS, self.DECODER_FEED_FORWARD_HIDDEN)
         self.dropout = keras.layers.Dropout(DROPOUT_RATE)
 
-        self.final_layer = keras.layers.Dense(VOCAB_SIZE)
+        self.final_layer = keras.layers.Dense(VOCAB_SIZE, kernel_initializer="glorot_uniform", bias_initializer="zeros")
 
     def compute_mask(self, inputs, mask=None):
         # Just pass the received mask from previous layer, to the next layer or
@@ -195,8 +195,7 @@ class PGN(keras.Model):
         else:
             return (
                 tf.stack(final_dists, 1),
-                dec_hidden,
-                context_vector,
+                dec_output,  # dec_hidden
                 tf.stack(tf.unstack(attn_dists, axis=1), 1),
                 tf.stack(tf.unstack(p_gens, axis=1), 1),
             )
