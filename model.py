@@ -6,41 +6,94 @@ from embedding import PositionalEmbedding
 from encoder import Encoder, EncoderReducer
 
 
-class PGN(keras.Model):
-    def __init__(self, params: dict):
-        super(PGN, self).__init__()
-
-        VOCAB_SIZE = params["vocab_size"]
-        BATCH_SIZE = params["batch_size"]
-
+class PGNConfig:
+    def __init__(self, params):
         # size of the embedding, essentially equal to d_model
-        EMBED_SIZE = params["embed_size"]
+        self.EMBED_SIZE = int(params["embed_size"])
+        self.VOCAB_SIZE = int(params["vocab_size"])
+        self.BATCH_SIZE = int(params["batch_size"])
 
-        ENC_UNITS = params["enc_units"]
-        DEC_UNITS = params["dec_units"]
+        self.ENC_UNITS = int(params["enc_units"])
+        self.DEC_UNITS = int(params["dec_units"])
 
-        MAX_ENC_LENGTH = params["max_enc_len"]
-        MAX_DEC_LENGTH = params["max_dec_len"]
+        self.MAX_ENC_LENGTH = int(params["max_enc_len"])
+        self.MAX_DEC_LENGTH = int(params["max_dec_len"])
 
         self.NUM_HEADS = 4
         self.DECODER_FEED_FORWARD_HIDDEN = 2048
-        ATTN_UNITS = params["attn_units"]
-        DROPOUT_RATE = 0.2
+        self.DROPOUT_RATE = 0.2
 
-        self.params = params
+    @staticmethod
+    def from_dict(d: dict[str, str]) -> "PGNConfig":
+        return PGNConfig(
+            {
+                "embed_size": d["embed_size"],
+                "vocab_size": d["vocab_size"],
+                "batch_size": d["batch_size"],
+                "enc_units": d["enc_units"],
+                "dec_units": d["dec_units"],
+                "max_enc_len": d["max_enc_len"],
+                "max_dec_len": d["max_dec_len"],
+            }
+        )
 
-        self.enc_pos_emb = PositionalEmbedding(MAX_ENC_LENGTH, VOCAB_SIZE, EMBED_SIZE)
-        self.encoder = Encoder(ENC_UNITS, BATCH_SIZE)
-        self.encoder_reducer = EncoderReducer(ENC_UNITS)
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "embed_size": str(self.EMBED_SIZE),
+            "vocab_size": str(self.VOCAB_SIZE),
+            "batch_size": str(self.BATCH_SIZE),
+            "enc_units": str(self.ENC_UNITS),
+            "dec_units": str(self.DEC_UNITS),
+            "max_enc_len": str(self.MAX_ENC_LENGTH),
+            "max_dec_len": str(self.MAX_DEC_LENGTH),
+        }
 
-        # self.attention = BahdanauAttention(ATTN_UNITS)
-        # self.pointer = Pointer()
 
-        self.dec_pos_emb = PositionalEmbedding(MAX_DEC_LENGTH, VOCAB_SIZE, EMBED_SIZE)
-        self.decoder = Decoder(DEC_UNITS, EMBED_SIZE, self.NUM_HEADS, self.DECODER_FEED_FORWARD_HIDDEN)
-        self.dropout = keras.layers.Dropout(DROPOUT_RATE)
+class PGN(keras.Model):
+    def __init__(self, config: PGNConfig | dict[str, str], training_mode: bool, **kwargs):
+        super(PGN, self).__init__(**kwargs)
 
-        self.final_layer = keras.layers.Dense(VOCAB_SIZE, kernel_initializer="glorot_uniform", bias_initializer="zeros")
+        if isinstance(config, str):
+            config = eval(config)
+
+        if isinstance(config, dict):
+            config = PGNConfig.from_dict(config)
+
+        self.config = config
+        self.training_mode = training_mode
+
+        self.enc_pos_emb = PositionalEmbedding(
+            config.MAX_ENC_LENGTH,
+            config.VOCAB_SIZE,
+            config.EMBED_SIZE,
+        )
+        self.encoder = Encoder(config.ENC_UNITS, config.BATCH_SIZE)
+        self.encoder_reducer = EncoderReducer(config.ENC_UNITS)
+
+        self.dec_pos_emb = PositionalEmbedding(
+            config.MAX_DEC_LENGTH,
+            config.VOCAB_SIZE,
+            config.EMBED_SIZE,
+        )
+        self.decoder = Decoder(
+            config.DEC_UNITS,
+            config.EMBED_SIZE,
+            config.NUM_HEADS,
+            config.DECODER_FEED_FORWARD_HIDDEN,
+        )
+        self.dropout = keras.layers.Dropout(config.DROPOUT_RATE)
+
+        self.final_layer = keras.layers.Dense(
+            config.VOCAB_SIZE,
+            kernel_initializer="glorot_uniform",
+            bias_initializer="zeros",
+        )
+
+    def set_is_training(self, is_training: bool):
+        self.training_mode = is_training
+
+    def get_config(self) -> dict[str, str]:
+        return {"config": str(self.config.to_dict()), "training_mode": str(True)}
 
     def compute_mask(self, inputs, mask=None):
         # Just pass the received mask from previous layer, to the next layer or
@@ -73,13 +126,21 @@ class PGN(keras.Model):
         return dec_look_ahead_mask, dec_padding_mask
 
     def _calc_final_dist(
-        self, _enc_batch_extend_vocab, vocab_dists, attn_dists, p_gens, batch_oov_len, vocab_size, batch_size
+        self,
+        _enc_batch_extend_vocab,
+        vocab_dists,
+        attn_dists,
+        p_gens,
+        batch_oov_len,
+        vocab_size,
+        batch_size,
     ):
         """
         Calculate the final distribution, for the pointer-generator model.
 
         Args:
-            vocab_dists: The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays. The words are in the order they appear in the vocabulary file.
+            vocab_dists: The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays.
+            The words are in the order they appear in the vocabulary file.
             attn_dists: The attention distributions. List length max_dec_steps of (batch_size, attn_len) arrays
         Returns:
             final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
@@ -144,9 +205,6 @@ class PGN(keras.Model):
         batch_oov_len,
         training: bool,
     ):
-        VOCAB_SIZE = self.params["vocab_size"]
-        BATCH_SIZE = self.params["batch_size"]
-
         dec_look_ahead_mask, dec_pad_mask = self.__create_masks(enc_inp, dec_inp)
 
         # enc_hidden = self.encoder.initialize_hidden_state()
@@ -173,9 +231,9 @@ class PGN(keras.Model):
         # output = tf.concat([output, tf.zeros((tf.shape(output)[0], tf.shape(output)[1], max_oov_len))], axis=-1)
 
         # (batch_size,num_heads, targ_seq_len, inp_seq_len)
-        attn_dists = attn_weights["decoder_layer{}_block2".format(self.params["dec_units"])]
+        attn_dists = attn_weights["decoder_layer{}_block2".format(self.config.DEC_UNITS)]
         # (batch_size, targ_seq_len, inp_seq_len)
-        attn_dists = tf.reduce_sum(attn_dists, axis=1) / self.NUM_HEADS
+        attn_dists = tf.reduce_sum(attn_dists, axis=1) / self.config.NUM_HEADS
 
         final_dists = self._calc_final_dist(
             enc_extended_inp,
@@ -183,13 +241,13 @@ class PGN(keras.Model):
             tf.unstack(attn_dists, axis=1),
             tf.unstack(p_gens, axis=1),
             batch_oov_len,
-            VOCAB_SIZE,
-            BATCH_SIZE,
+            self.config.VOCAB_SIZE,
+            self.config.BATCH_SIZE,
         )
 
         final_output = tf.stack(final_dists, axis=1)
 
-        if self.params["mode"] == "train":
+        if self.training_mode:
             # predictions_shape = (batch_size, dec_len, vocab_size) with dec_len = 1 in pred mode
             return final_output, attn_weights
         else:
