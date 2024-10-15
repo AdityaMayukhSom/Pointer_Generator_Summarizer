@@ -1,37 +1,32 @@
-import logging
 import time
 
 import keras
 import tensorflow as tf
+from loguru import logger
 
 import batcher
 from model import PGN
 
 
-def define_logger(log_file):
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
-    # get TF logger
-    log = logging.getLogger("tensorflow")
-    log.setLevel(logging.DEBUG)
-
-    # create formatter and add it to the handlers
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    # create file handler which logs even debug messages
-    fh = logging.FileHandler(log_file)
-    fh.setLevel(logging.INFO)
-    fh.setFormatter(formatter)
-    log.addHandler(fh)
-
-
 class ModelTrainer:
-    def __init__(self, params, model: PGN, dataset):
+    def __init__(
+        self,
+        model: PGN,
+        optimizer: keras.optimizers.Optimizer,
+        dataset: tf.data.Dataset,
+        vocab: batcher.Vocab,
+        batch_size: int,
+        maximum_training_steps: int,
+        checkpoint_save_steps: int,
+    ):
         self.model = model
         self.dataset = dataset
+        self.vocab = vocab
+        self.optimizer = optimizer
 
-        self.batch_size = int(params["batch_size"])
-        self.max_training_steps = int(params["max_steps"])
-        self.checkpoint_save_steps = int(params["checkpoints_save_steps"])
+        self.batch_size = batch_size
+        self.max_training_steps = maximum_training_steps
+        self.checkpoint_save_steps = checkpoint_save_steps
 
     def loss_function(self, real: tf.Tensor, pred: tf.Tensor) -> tf.Tensor:
         """
@@ -78,9 +73,9 @@ class ModelTrainer:
         dec_inp: tf.Tensor,
         dec_tar: tf.Tensor,
         batch_oov_len: tf.Tensor,
-        vocab: batcher.Vocab,
         article_oovs,
-        optimizer: keras.optimizers.Optimizer,
+        debug_input_text=False,
+        debug_output_text=False,
     ) -> tf.Tensor:
         """
         Args:
@@ -100,18 +95,31 @@ class ModelTrainer:
         loss: tf.Tensor = tf.zeros([1], tf.float32)
 
         with tf.GradientTape() as tape:
-            input_word_list = batcher.DataHelper.output_to_words(list(enc_inp[0].numpy()), vocab, article_oovs)
-            print("\n\n\n\n", " ".join(input_word_list))
+            if debug_input_text:
+                input_word_list = batcher.DataHelper.output_to_words(
+                    list(enc_inp[0].numpy()),  # type: ignore
+                    self.vocab,
+                    article_oovs,
+                )
+                print("\n\n", " ".join(input_word_list))
 
             enc_outputs, enc_c, enc_h = self.model.call_encoder(enc_inp)
             predictions, _ = self.model(
-                enc_outputs, enc_inp, enc_extended_inp, dec_inp, batch_oov_len=batch_oov_len, training=True
+                enc_outputs,
+                enc_inp,
+                enc_extended_inp,
+                dec_inp,
+                batch_oov_len=batch_oov_len,
+                training=True,
             )
 
-            output_word_list = batcher.DataHelper.output_to_words(
-                list(tf.argmax(predictions[0, :, :], axis=1).numpy()), vocab, article_oovs
-            )
-            print(" ".join(output_word_list), "\n\n\n\n")
+            if debug_output_text:
+                output_word_list = batcher.DataHelper.output_to_words(
+                    list(tf.argmax(predictions[0, :, :], axis=1).numpy()),
+                    self.vocab,
+                    article_oovs,
+                )
+                print(" ".join(output_word_list), "\n\n")
 
             variables = (
                 self.model.enc_pos_emb.trainable_variables
@@ -127,60 +135,63 @@ class ModelTrainer:
             if gradients is None:
                 raise ValueError("gradients cannot be none")
 
-            optimizer.apply_gradients(zip(gradients, variables))
+            self.optimizer.apply_gradients(zip(gradients, variables))
 
         return loss
 
     # @tf.function
     def execute(
         self,
-        ckpt: tf.train.Checkpoint,
-        ckpt_manager: tf.train.CheckpointManager,
+        callbacks: keras.callbacks.CallbackList,
         out_file: str,
-        vocab: batcher.Vocab,
-        optimizer: keras.optimizers.Optimizer,
+        batch_number: int,
     ):
         try:
             f = open(out_file, "w+")
+            callbacks.on_train_begin()
             for batch in self.dataset:
+                batch_number += 1
+
+                if batch is None:
+                    logger.warning("Skipping Batch Number {}".format(batch_number))
+                    continue
+
+                callbacks.on_epoch_begin(batch_number)
+                # callbacks.on_train_batch_begin(batch_number)
+
                 # len(batch) is 2, batch is a tuple of two elements
-
-                t0 = time.time()
-
                 max_oov_len = batch[0]["article_oovs"].shape[1]
 
+                start_time = time.time()
                 loss = self.train_step(
                     batch[0]["enc_input"],
                     batch[0]["extended_enc_input"],
                     batch[1]["dec_input"],
                     batch[1]["dec_target"],
                     max_oov_len,
-                    vocab,
                     batch[0]["article_oovs"],
-                    optimizer,
                 )
+                end_time = time.time()
 
-                t1 = time.time()
-
-                step_time = t1 - t0
+                step_time = end_time - start_time
                 current_loss = loss.numpy()  # type: ignore
-                checkpoint_step = int(ckpt.step)
 
-                print("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
-                f.write("Step {}, time {:.4f}, Loss {:.4f}".format(checkpoint_step, step_time, current_loss))
+                print("Batch {}, time {:.4f}, Loss {:.4f}".format(batch_number, step_time, current_loss))
+                f.write("Batch {}, time {:.4f}, Loss {:.4f}".format(batch_number, step_time, current_loss))
 
-                if checkpoint_step % self.checkpoint_save_steps == 0 or checkpoint_step == self.max_training_steps:
-                    ckpt_manager.save(checkpoint_number=checkpoint_step)
-                    print("Saved checkpoint for step {}".format(checkpoint_step))
-
-                if checkpoint_step == self.max_training_steps:
+                # callbacks.on_train_batch_end(batch_number)
+                callbacks.on_epoch_end(batch_number)
+                if batch_number == self.max_training_steps:
                     break
-
-                ckpt.step.assign_add(1)
-            f.close()
-
+            callbacks.on_train_end()
         except KeyboardInterrupt:
-            checkpoint_step = int(ckpt.step)
-            ckpt_manager.save(checkpoint_step)
-            print("Saved checkpoint for step {}".format(checkpoint_step))
+            # checkpoint_path = "{}/{}_batch_{}.keras".format(
+            #     callbacks,
+            #     self.model_name,
+            #     batch + 1,
+            # )
+            # self.model.save(checkpoint_path)
+            # logger.info("Saved Checkpoint: " + checkpoint_path + "\n")
+            logger.info("keyboard interrupt")
+        finally:
             f.close()

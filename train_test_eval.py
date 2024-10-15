@@ -1,8 +1,10 @@
-import logging
+import os
 import pprint
+import re
 
 import keras
 import tensorflow as tf
+from loguru import logger
 from rouge import Rouge
 from tqdm import tqdm
 
@@ -15,54 +17,132 @@ from training_helper import ModelTrainer
 def train(params):
     assert params["mode"].lower() == "train", "change training mode to 'train'"
 
-    logging.info("Building the model ...")
-    model = PGN(params)
+    logger.info("Building Vocab Object...")
+    vocab = Vocab(params["vocab_path"], params["vocab_size"])
 
-    logging.info("Building Optimizer ...")
+    logger.info("Building Batcher Object...")
+    dataset_v2 = batcher(params["data_dir"], vocab, params)
+
+    # step = tf.Variable(0)
+    # ckpt = tf.train.Checkpoint(
+    #     step=step,
+    #     model=model,
+    #     # optimizer=optimizer,
+    # )
+
+    # print("Creating the checkpoint manager")
+    # ckpt_manager = tf.train.CheckpointManager(
+    #     checkpoint=ckpt,
+    #     directory=checkpoint_dir,
+    #     max_to_keep=5,
+    #     # step_counter=tf.Variable(0),
+    # )
+
+    # print("latest checkpoint", ckpt_manager.latest_checkpoint)
+    # ckpt_manager.restore_or_initialize()
+    # status = ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
+
+    # model.summary()
+    # status.assert_existing_objects_matched()
+    # status.assert_consumed()
+
+    # if ckpt_manager.latest_checkpoint:
+    #     print("Restored from {}".format(ckpt_manager.latest_checkpoint))
+    # else:
+    #     print("Initializing from scratch.")
+
+    logger.info("Building Optimizer ...")
     optimizer = keras.optimizers.Adagrad(
         learning_rate=params["learning_rate"],
         initial_accumulator_value=params["adagrad_init_acc"],
         clipnorm=params["max_grad_norm"],
     )
 
-    print("Creating the vocab ...")
-    vocab = Vocab(params["vocab_path"], params["vocab_size"])
-
-    print("Creating the batcher ...")
-    dataset_v2 = batcher(params["data_dir"], vocab, params)
-
-    print("Creating the checkpoint manager")
     checkpoint_dir = "{}".format(params["checkpoint_dir"])
-    ckpt = tf.train.Checkpoint(
-        step=tf.Variable(0),
-        model=model,
-        # optimizer=optimizer,
-    )
-    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
+    model_filepath_format = "pgn_batch_{epoch:05d}.keras"
+    checkpoint_filepath_format = checkpoint_dir + model_filepath_format
 
-    print("latest checkpoint", ckpt_manager.latest_checkpoint)
-    status = ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
+    def get_latest_checkpoint_number(filenames: list[str]):
+        latest_ckpt_number = 1
 
-    # model.summary()
-    # status.assert_existing_objects_matched()
-    status.assert_consumed()
+        for filename in filenames:
+            if not filename.startswith("pgn_batch_"):
+                continue
 
-    if ckpt_manager.latest_checkpoint:
-        print("Restored from {}".format(ckpt_manager.latest_checkpoint))
+            if not filename.endswith(".keras"):
+                continue
+
+            regex_search_match = re.search(r"_(\d{5})\.keras", filename)
+
+            if regex_search_match is None:
+                continue
+
+            ckpt_number = int(regex_search_match.group(1))
+            latest_ckpt_number = max(ckpt_number, latest_ckpt_number)
+
+        return latest_ckpt_number
+
+    logger.info("Building PGN Model ...")
+
+    filenames = os.listdir(checkpoint_dir)
+
+    if len(filenames) > 0:
+        latest_batch_number = get_latest_checkpoint_number(filenames)
+        checkpoint_filepath = checkpoint_filepath_format.format(epoch=latest_batch_number)
+        logger.info("Restoring From {}".format(checkpoint_filepath))
+        model = keras.models.load_model(checkpoint_filepath)
+        logger.info("Restored From {}".format(checkpoint_filepath))
     else:
-        print("Initializing from scratch.")
+        logger.info("Initializing Model From Scratch")
+        model = PGN(params, training_mode=params["mode"] == "train")
+        latest_batch_number = 0
+        logger.info("Model Initialized From Scratch")
 
-    logging.info("Starting the training ...")
-    model_trainer = ModelTrainer(params, model, dataset_v2)
-    model_trainer.execute(ckpt, ckpt_manager, "output.txt", vocab, optimizer)
+    logger.info("Initializing Model Checkpoint Callback...")
+
+    # cp_callback = BatchCheckpoint("pgn", checkpoint_dir=checkpoint_dir, save_freq=2)
+    cp_callback = keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_filepath_format,
+        monitor="val_loss",
+        save_weights_only=False,
+        save_best_only=False,
+        mode="auto",
+        save_freq="epoch",
+        verbose=1,
+    )
+
+    logger.info("Initializing Model Callbacks...")
+    callbacks = keras.callbacks.CallbackList(
+        [cp_callback],
+        add_history=True,
+        model=model,
+    )
+
+    logger.info("Creating Model Trainer...")
+    model_trainer = ModelTrainer(
+        model=model,
+        optimizer=optimizer,
+        dataset=dataset_v2,
+        vocab=vocab,
+        batch_size=int(params["batch_size"]),
+        maximum_training_steps=int(params["max_steps"]),
+        checkpoint_save_steps=int(params["checkpoints_save_steps"]),
+    )
+
+    callbacks.on_train_begin()
+
+    logger.info("Starting the training ...")
+    model_trainer.execute(callbacks=callbacks, out_file="output.txt", batch_number=latest_batch_number)
+
+    callbacks.on_train_end()
 
 
 def test(params):
     assert params["mode"].lower() in ["test", "eval"], "change training mode to 'test' or 'eval'"
     assert params["beam_size"] == params["batch_size"], "Beam size must be equal to batch_size, change the params"
 
-    logging.info("Building the model ...")
-    model = PGN(params)
+    logger.info("Building the model ...")
+    model = PGN(params, params["mode"] == "train")
 
     print("Creating the vocab ...")
     vocab = Vocab(params["vocab_path"], params["vocab_size"])
