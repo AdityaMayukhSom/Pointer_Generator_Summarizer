@@ -15,7 +15,7 @@ class FeedForward(keras.layers.Layer):
         layer_norm (tf.keras.layers.LayerNormalization): The LayerNormalization layer.
     """
 
-    def __init__(self, d_model: int, dff: int, dropout_rate: float = 0.1):
+    def __init__(self, d_model: int, dff: int, dropout_rate: float = 0.1, **kwargs):
         """
         Constructor of the FeedForward layer.
 
@@ -24,7 +24,7 @@ class FeedForward(keras.layers.Layer):
             dff (int): The dimensionality of the feed-forward layer.
             dropout_rate (float): The dropout rate.
         """
-        super().__init__()
+        super(FeedForward, self).__init__(**kwargs)
         self.seq = keras.Sequential(
             [
                 keras.layers.Dense(dff, activation="relu"),
@@ -32,6 +32,7 @@ class FeedForward(keras.layers.Layer):
                 keras.layers.Dropout(dropout_rate),
             ]
         )
+
         self.add = keras.layers.Add()
         self.layer_norm = keras.layers.LayerNormalization()
 
@@ -51,8 +52,8 @@ class FeedForward(keras.layers.Layer):
 
 
 class DecoderLayer(keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
-        super(DecoderLayer, self).__init__()
+    def __init__(self, d_model, num_heads, dff, rate=0.1, **kwargs):
+        super(DecoderLayer, self).__init__(**kwargs)
 
         self.mha1 = keras.layers.MultiHeadAttention(num_heads, d_model, d_model, dropout=rate)
         self.mha2 = keras.layers.MultiHeadAttention(num_heads, d_model, d_model, dropout=rate)
@@ -101,8 +102,8 @@ class DecoderLayer(keras.layers.Layer):
 
 
 class Decoder(keras.layers.Layer):
-    def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1):
-        super(Decoder, self).__init__()
+    def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1, **kwargs):
+        super(Decoder, self).__init__(**kwargs)
         self.d_model = d_model
         self.num_layers = num_layers
         self.num_heads = num_heads
