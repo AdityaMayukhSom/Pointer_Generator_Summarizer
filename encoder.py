@@ -5,8 +5,8 @@ import tensorflow as tf
 class Encoder(keras.layers.Layer):
     # TODO: Positional Encoding Helps Recurrent Neural Networks Handle a Large Vocabulary
     # https://arxiv.org/pdf/2402.00236v1
-    def __init__(self, enc_units: int, batch_sz: int):
-        super(Encoder, self).__init__()
+    def __init__(self, enc_units: int, batch_sz: int, **kwargs):
+        super(Encoder, self).__init__(**kwargs)
         self.batch_sz = batch_sz
         self.enc_units = enc_units
 
@@ -65,10 +65,10 @@ class EncoderReducer(keras.layers.Layer):
     Reduces the Bi-LSTM outputs to a unidirectional LSTM output space.
     """
 
-    def __init__(self, units: int):
-        super(EncoderReducer, self).__init__()
-        self.c_reducer = keras.layers.Dense(units)
-        self.h_recuder = keras.layers.Dense(units)
+    def __init__(self, units: int, **kwargs):
+        super(EncoderReducer, self).__init__(**kwargs)
+        self.c_reducer = keras.layers.Dense(units, activation="relu")
+        self.h_recuder = keras.layers.Dense(units, activation="relu")
 
     def call(
         self,
@@ -80,7 +80,7 @@ class EncoderReducer(keras.layers.Layer):
         old_c = tf.concat([forward_c, backward_c], axis=1)
         old_h = tf.concat([forward_h, backward_h], axis=1)
 
-        new_c = tf.nn.relu(self.c_reducer(old_c))
-        new_h = tf.nn.relu(self.h_recuder(old_h))
+        new_c = self.c_reducer(old_c)
+        new_h = self.h_recuder(old_h)
 
         return new_c, new_h
