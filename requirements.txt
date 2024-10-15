@@ -2,3 +2,4 @@ tensorflow
 rouge
 tqdm
 numpy
+loguru
