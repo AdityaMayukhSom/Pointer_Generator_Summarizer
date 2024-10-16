@@ -19,23 +19,13 @@ class PGNConfig:
         self.MAX_ENC_LENGTH = int(params["max_enc_len"])
         self.MAX_DEC_LENGTH = int(params["max_dec_len"])
 
-        self.NUM_HEADS = 4
-        self.DECODER_FEED_FORWARD_HIDDEN = 2048
-        self.DROPOUT_RATE = 0.2
+        self.NUM_HEADS = int(params["transformer_attn_num_heads"])
+        self.DECODER_FEED_FORWARD_HIDDEN = int(params["decoder_hidden_num_nodes"])
+        self.DROPOUT_RATE = float(params["dropout_rate"])
 
     @staticmethod
-    def from_dict(d: dict[str, str]) -> "PGNConfig":
-        return PGNConfig(
-            {
-                "embed_size": d["embed_size"],
-                "vocab_size": d["vocab_size"],
-                "batch_size": d["batch_size"],
-                "enc_units": d["enc_units"],
-                "dec_units": d["dec_units"],
-                "max_enc_len": d["max_enc_len"],
-                "max_dec_len": d["max_dec_len"],
-            }
-        )
+    def from_dict(params_dict: dict[str, str]) -> "PGNConfig":
+        return PGNConfig(params_dict)
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -46,6 +36,9 @@ class PGNConfig:
             "dec_units": str(self.DEC_UNITS),
             "max_enc_len": str(self.MAX_ENC_LENGTH),
             "max_dec_len": str(self.MAX_DEC_LENGTH),
+            "transformer_attn_num_heads": str(self.NUM_HEADS),
+            "decoder_hidden_num_nodes": str(self.DECODER_FEED_FORWARD_HIDDEN),
+            "dropout_rate": str(self.DROPOUT_RATE)
         }
 
 
