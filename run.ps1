@@ -22,4 +22,7 @@ python main.py `
     --data_dir="./tfrecords/data" `
     --model_path="./checkpoint/ckpt-61" `
     --checkpoint_dir="./checkpoint/" `
-    --test_save_dir="./test_dir/"
+    --test_save_dir="./test_dir/" ` 
+    --transformer_attn_num_heads=4 `
+    --dropout_rate=0.2 `
+    --decoder_hidden_num_nodes=2048
