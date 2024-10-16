@@ -1,5 +1,6 @@
 import os
 import argparse
+from loguru import logger
 from train_test_eval import train, test_and_save, evaluate
 
 def main():
@@ -29,7 +30,9 @@ def main():
     parser.add_argument("--data_dir",  help="Data Folder", default="", type=str)
     parser.add_argument("--vocab_path", help="Vocab path", default="", type=str)
     parser.add_argument("--log_file", help="File in which to redirect console outputs", default="", type=str)
-
+    parser.add_argument("--transformer_attn_num_heads", default=4, help="Number of heads in transformer attention", type=int)
+    parser.add_argument("--dropout_rate", help="Dropout rate for the model architecture", type=float)
+    parser.add_argument("--decoder_hidden_num_nodes", help="Number of nodes in the feed forward network of transformer decoder", type=int)
 
     args = parser.parse_args()
     params = vars(args)
