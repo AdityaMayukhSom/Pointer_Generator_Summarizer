@@ -23,34 +23,6 @@ def train(params):
     logger.info("Building Batcher Object...")
     dataset_v2 = batcher(params["data_dir"], vocab, params)
 
-    # step = tf.Variable(0)
-    # ckpt = tf.train.Checkpoint(
-    #     step=step,
-    #     model=model,
-    #     # optimizer=optimizer,
-    # )
-
-    # print("Creating the checkpoint manager")
-    # ckpt_manager = tf.train.CheckpointManager(
-    #     checkpoint=ckpt,
-    #     directory=checkpoint_dir,
-    #     max_to_keep=5,
-    #     # step_counter=tf.Variable(0),
-    # )
-
-    # print("latest checkpoint", ckpt_manager.latest_checkpoint)
-    # ckpt_manager.restore_or_initialize()
-    # status = ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
-
-    # model.summary()
-    # status.assert_existing_objects_matched()
-    # status.assert_consumed()
-
-    # if ckpt_manager.latest_checkpoint:
-    #     print("Restored from {}".format(ckpt_manager.latest_checkpoint))
-    # else:
-    #     print("Initializing from scratch.")
-
     logger.info("Building Optimizer ...")
     optimizer = keras.optimizers.Adagrad(
         learning_rate=params["learning_rate"],
@@ -84,6 +56,10 @@ def train(params):
 
     logger.info("Building PGN Model ...")
 
+    if not os.path.isdir(checkpoint_dir):
+        logger.info("Creating Checkpoint Directory: {}".format(checkpoint_dir))
+        os.mkdir(checkpoint_dir)
+                
     filenames = os.listdir(checkpoint_dir)
 
     if len(filenames) > 0:
@@ -93,21 +69,19 @@ def train(params):
         model = keras.models.load_model(checkpoint_filepath)
         logger.info("Restored From {}".format(checkpoint_filepath))
     else:
-        logger.info("Initializing Model From Scratch")
-        model = PGN(params, training_mode=params["mode"] == "train")
         latest_batch_number = 0
+        logger.info("Initializing Model From Scratch")
+        model = PGN(params, training_mode=True)
         logger.info("Model Initialized From Scratch")
 
     logger.info("Initializing Model Checkpoint Callback...")
-
-    # cp_callback = BatchCheckpoint("pgn", checkpoint_dir=checkpoint_dir, save_freq=2)
     cp_callback = keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath_format,
         monitor="val_loss",
         save_weights_only=False,
         save_best_only=False,
         mode="auto",
-        save_freq="epoch",
+        save_freq=int(params["checkpoints_save_steps"]),
         verbose=1,
     )
 
@@ -142,7 +116,7 @@ def test(params):
     assert params["beam_size"] == params["batch_size"], "Beam size must be equal to batch_size, change the params"
 
     logger.info("Building the model ...")
-    model = PGN(params, params["mode"] == "train")
+    model = PGN(params, training_mode=False)
 
     print("Creating the vocab ...")
     vocab = Vocab(params["vocab_path"], params["vocab_size"])
